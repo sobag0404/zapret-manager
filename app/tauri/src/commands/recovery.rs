@@ -1,4 +1,4 @@
-use crate::service_client::client;
+use crate::{service_client::client, set_tray_status};
 use zapret_manager_core::{AppStatus, SystemSnapshot};
 
 #[tauri::command]
@@ -17,12 +17,14 @@ pub fn restart_engine() -> std::result::Result<String, String> {
 }
 
 #[tauri::command]
-pub fn emergency_disable() -> std::result::Result<AppStatus, String> {
-    client()
+pub fn emergency_disable(app: tauri::AppHandle) -> std::result::Result<AppStatus, String> {
+    let next = client()
         .lock()
         .map_err(|err| err.to_string())?
         .disable_all()
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+    set_tray_status(&app, false);
+    Ok(next)
 }
 
 #[tauri::command]
@@ -47,10 +49,12 @@ pub fn create_snapshot() -> std::result::Result<SystemSnapshot, String> {
 }
 
 #[tauri::command]
-pub fn restore_snapshot() -> std::result::Result<AppStatus, String> {
-    client()
+pub fn restore_snapshot(app: tauri::AppHandle) -> std::result::Result<AppStatus, String> {
+    let next = client()
         .lock()
         .map_err(|err| err.to_string())?
         .disable_all()
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+    set_tray_status(&app, false);
+    Ok(next)
 }

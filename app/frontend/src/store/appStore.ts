@@ -27,7 +27,7 @@ interface AppState {
 const initialState: AppState = {
   status: null,
   profiles: [],
-  selectedProfiles: ["discord"],
+  selectedProfiles: [],
   diagnostics: [],
   updateStatus: null,
   userLog: "",
@@ -78,7 +78,7 @@ export const appActions = {
       setState({
         status,
         profiles,
-        selectedProfiles: status.enabled_profiles.length ? status.enabled_profiles : ["discord"],
+        selectedProfiles: status.enabled_profiles,
         diagnostics: diagnostics.items,
         updateStatus,
         userLog,

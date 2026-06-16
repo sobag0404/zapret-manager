@@ -4,7 +4,7 @@ import { StatusCard } from "../components/StatusCard";
 import { appActions, useAppStore } from "../store/appStore";
 
 export function Dashboard() {
-  const { status, selectedProfiles, diagnostics, loading } = useAppStore();
+  const { status, profiles, selectedProfiles, diagnostics, loading } = useAppStore();
   const errors = diagnostics.filter((item) => item.status === "error").length;
   const warnings = diagnostics.filter((item) => item.status === "warning").length;
 
@@ -17,6 +17,30 @@ export function Dashboard() {
           <p>Локальное управление профилями через службу. GUI не запускает engine напрямую.</p>
         </div>
         <MainToggle status={status?.status ?? "disabled"} loading={loading.toggle} onToggle={appActions.toggleEnabled} />
+      </section>
+      <section className="dashboard-section">
+        <div className="section-heading">
+          <span className="eyebrow">Режимы</span>
+          <h2>Выберите один или несколько</h2>
+        </div>
+        <div className="mode-grid">
+          {profiles.map((profile) => {
+            const selected = selectedProfiles.includes(profile.id);
+            return (
+              <label className={`mode-option ${selected ? "is-selected" : ""}`} key={profile.id}>
+                <input
+                  checked={selected}
+                  onChange={(event) => appActions.setProfileSelected(profile.id, event.target.checked)}
+                  type="checkbox"
+                />
+                <span>
+                  <strong>{profile.name}</strong>
+                  <small>{profile.status} · {profile.version} · риск {profile.risk_level}</small>
+                </span>
+              </label>
+            );
+          })}
+        </div>
       </section>
       <section className="status-grid">
         <StatusCard

@@ -7,12 +7,14 @@ use commands::{
 };
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, WindowEvent};
+use zapret_manager_core::RuntimeStatus;
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            setup_close_to_tray(app.handle());
             setup_tray(app.handle())?;
             Ok(())
         })
@@ -51,8 +53,9 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let recovery = MenuItem::with_id(app, "recovery", "Восстановить", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &toggle, &diagnostics, &recovery, &quit])?;
-    let _tray = TrayIconBuilder::new()
+    let _tray = TrayIconBuilder::with_id("main")
         .menu(&menu)
+        .tooltip("Zapret Manager: отключено")
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
@@ -73,9 +76,60 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                     let _ = window.set_focus();
                 }
             }
+            "toggle" => handle_tray_toggle(app),
             "quit" => app.exit(0),
             _ => {}
         })
         .build(app)?;
     Ok(())
+}
+
+fn setup_close_to_tray(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let window_for_event = window.clone();
+        window.on_window_event(move |event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window_for_event.hide();
+            }
+        });
+    }
+}
+
+pub(crate) fn set_tray_status(app: &AppHandle, running: bool) {
+    if let Some(tray) = app.tray_by_id("main") {
+        let tooltip = if running {
+            "Zapret Manager: работает"
+        } else {
+            "Zapret Manager: отключено"
+        };
+        let _ = tray.set_tooltip(Some(tooltip));
+    }
+}
+
+fn handle_tray_toggle(app: &AppHandle) {
+    let mut guard = match service_client::client().lock() {
+        Ok(guard) => guard,
+        Err(_) => return show_main_window(app),
+    };
+    let status = match guard.status() {
+        Ok(status) => status,
+        Err(_) => return show_main_window(app),
+    };
+
+    if status.status == RuntimeStatus::Running {
+        if guard.disable_all().is_ok() {
+            set_tray_status(app, false);
+        }
+        return;
+    }
+
+    show_main_window(app);
+}
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }

@@ -48,7 +48,7 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 262px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -56,6 +56,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 22px;
+  min-width: 0;
   padding: 22px 16px;
   background: #152127;
   color: #f7fafb;
@@ -94,6 +95,7 @@ button:disabled {
 nav {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 nav button {
@@ -117,7 +119,8 @@ nav button.is-active {
 
 main {
   position: relative;
-  padding: 34px;
+  min-width: 0;
+  padding: 40px 34px;
   overflow: auto;
 }
 
@@ -149,30 +152,32 @@ main {
 
 .page-stack {
   display: grid;
-  gap: 22px;
-  max-width: 1180px;
+  gap: 18px;
+  width: min(100%, 1120px);
 }
 
 .page-header,
 .dashboard-hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 28px;
 }
 
 .page-header h1,
 .dashboard-hero h1 {
   margin: 4px 0 0;
-  font-size: 32px;
+  font-size: 31px;
   line-height: 1.1;
   letter-spacing: 0;
+  overflow-wrap: anywhere;
 }
 
 .dashboard-hero p {
-  max-width: 620px;
+  max-width: 720px;
   margin: 10px 0 0;
   color: var(--muted);
+  line-height: 1.5;
 }
 
 .eyebrow {
@@ -191,7 +196,7 @@ main {
   display: flex;
   align-items: center;
   gap: 14px;
-  min-width: 250px;
+  width: min(250px, 100%);
   min-height: 86px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -239,12 +244,15 @@ main {
 .card-grid,
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 
+.status-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
 .card-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .settings-grid {
@@ -253,6 +261,7 @@ main {
 
 .status-card,
 .profile-card,
+.dashboard-section,
 .update-panel,
 .list-panel,
 .log-viewer,
@@ -264,10 +273,12 @@ main {
 }
 
 .status-card {
-  display: flex;
-  gap: 12px;
-  min-height: 130px;
-  padding: 18px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 14px;
+  min-height: 128px;
+  padding: 20px;
+  align-items: start;
 }
 
 .status-card-icon,
@@ -288,23 +299,96 @@ main {
   display: block;
 }
 
-.status-card span {
+.status-card-copy {
+  min-width: 0;
+}
+
+.status-card-copy span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
 }
 
-.status-card strong {
+.status-card-copy strong {
   margin-top: 8px;
-  font-size: 24px;
+  font-size: 25px;
+  line-height: 1.1;
   text-transform: capitalize;
+  overflow-wrap: anywhere;
 }
 
-.status-card small {
+.status-card-copy small {
   margin-top: 8px;
   color: var(--muted);
   line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-section {
+  padding: 18px;
+}
+
+.section-heading {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.section-heading h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.mode-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-height: 68px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8fafb;
+  cursor: pointer;
+}
+
+.mode-option.is-selected {
+  border-color: rgba(22, 117, 111, 0.55);
+  background: #edf8f6;
+}
+
+.mode-option input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.mode-option strong,
+.mode-option small {
+  display: block;
+  min-width: 0;
+}
+
+.mode-option strong {
+  color: var(--text);
+}
+
+.mode-option small {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .tone-ok .status-card-icon {
@@ -326,6 +410,7 @@ main {
   display: grid;
   gap: 16px;
   padding: 18px;
+  align-content: start;
 }
 
 .profile-card.is-active {
@@ -353,6 +438,43 @@ main {
   margin: 8px 0 0;
   color: var(--muted);
   line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.profile-card dl,
+.update-panel dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.profile-card dl div,
+.update-panel dl div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fafb;
+}
+
+.profile-card dt,
+.update-panel dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.profile-card dd,
+.update-panel dd {
+  margin: 4px 0 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--muted);
 }
 
 .status-icon.ok {
@@ -428,7 +550,7 @@ main {
 .diagnostic-item,
 .recovery-action {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
   padding: 18px;
@@ -461,8 +583,19 @@ main {
 
 .update-panel {
   display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 18px;
   padding: 22px;
+}
+
+.update-panel .button-row {
+  grid-column: 1 / -1;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .release-notes {
@@ -615,12 +748,14 @@ main {
   }
 
   nav {
-    grid-auto-flow: column;
-    grid-auto-columns: max-content;
+    display: flex;
     overflow-x: auto;
+    max-width: 100%;
+    padding-bottom: 2px;
   }
 
   nav button {
+    flex: 0 0 auto;
     white-space: nowrap;
   }
 
@@ -634,16 +769,14 @@ main {
 
   .dashboard-hero,
   .page-header {
+    grid-template-columns: 1fr;
     align-items: stretch;
-    flex-direction: column;
   }
 
   .main-toggle {
     width: 100%;
   }
 
-  .status-grid,
-  .card-grid,
   .settings-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -659,8 +792,6 @@ main {
     font-size: 26px;
   }
 
-  .status-grid,
-  .card-grid,
   .settings-grid {
     grid-template-columns: 1fr;
   }
