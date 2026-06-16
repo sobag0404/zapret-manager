@@ -1,0 +1,13 @@
+{
+  "id": "discord",
+  "name": "Discord",
+  "description": "Discord profile",
+  "status": "stable",
+  "version": "1.0.0",
+  "targets": ["desktop_app", "web", "voice"],
+  "health_checks": ["dns", "tcp", "https"],
+  "engine_profile_ref": "discord-default",
+  "fallback_profiles": ["discord-safe"],
+  "risk_level": "medium",
+  "notes": "No low-level strategy values in initial scaffold"
+}

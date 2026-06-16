@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zapret Manager Profile",
+  "type": "object",
+  "required": ["id", "name", "description", "status", "version", "targets", "health_checks", "engine_profile_ref", "fallback_profiles", "risk_level", "notes"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["stable", "experimental"] },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "targets": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "health_checks": { "type": "array", "items": { "enum": ["dns", "tcp", "https"] }, "minItems": 1 },
+    "engine_profile_ref": { "type": "string", "minLength": 1 },
+    "fallback_profiles": { "type": "array", "items": { "type": "string" } },
+    "risk_level": { "enum": ["low", "medium", "high"] },
+    "notes": { "type": "string", "minLength": 1 }
+  }
+}

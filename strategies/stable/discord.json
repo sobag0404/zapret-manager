@@ -1,0 +1,12 @@
+{
+  "id": "discord-stable",
+  "profile_id": "discord",
+  "channel": "stable",
+  "version": "1.0.0",
+  "updated_at": "2026-01-01T00:00:00Z",
+  "engine_profile_ref": "discord-default",
+  "health_checks": ["dns", "tcp", "https"],
+  "fallback_strategy": "discord-safe",
+  "rollback_supported": true,
+  "notes": "No real low-level parameters in scaffold"
+}

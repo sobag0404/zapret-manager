@@ -1,0 +1,13 @@
+{
+  "id": "telegram",
+  "name": "Telegram",
+  "description": "Telegram profile",
+  "status": "stable",
+  "version": "1.0.0",
+  "targets": ["desktop_app", "web"],
+  "health_checks": ["dns", "tcp", "https"],
+  "engine_profile_ref": "telegram-default",
+  "fallback_profiles": ["telegram-safe"],
+  "risk_level": "medium",
+  "notes": "No low-level strategy values in initial scaffold"
+}

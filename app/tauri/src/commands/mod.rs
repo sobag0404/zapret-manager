@@ -1,0 +1,9 @@
+pub mod diagnostics;
+pub mod disable;
+pub mod enable;
+pub mod logs;
+pub mod profiles;
+pub mod recovery;
+pub mod settings;
+pub mod status;
+pub mod updates;

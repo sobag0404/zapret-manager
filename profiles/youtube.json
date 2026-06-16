@@ -1,0 +1,13 @@
+{
+  "id": "youtube",
+  "name": "YouTube",
+  "description": "YouTube profile",
+  "status": "stable",
+  "version": "1.0.0",
+  "targets": ["web", "video"],
+  "health_checks": ["dns", "tcp", "https"],
+  "engine_profile_ref": "youtube-default",
+  "fallback_profiles": ["youtube-safe"],
+  "risk_level": "medium",
+  "notes": "No low-level strategy values in initial scaffold"
+}

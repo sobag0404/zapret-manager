@@ -1,0 +1,80 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/frontend/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "app/**"
+      - "core/**"
+      - "crates/**"
+      - "service/**"
+      - ".github/workflows/build-windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows artifacts
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install frontend dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: app/frontend
+        run: pnpm build
+
+      - name: Test Rust workspace
+        run: cargo test --workspace --all-features
+
+      - name: Build Rust workspace
+        run: cargo build --workspace --release
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts
+          if (Test-Path app/frontend/dist) {
+            Compress-Archive -Path app/frontend/dist/* -DestinationPath artifacts/frontend-dist.zip -Force
+          }
+          Get-ChildItem target/release -File |
+            Where-Object { $_.Extension -in ".exe", ".dll", ".pdb" } |
+            Copy-Item -Destination artifacts -Force
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zapret-manager-windows
+          path: artifacts/*
+          if-no-files-found: error

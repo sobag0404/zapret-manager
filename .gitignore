@@ -1,0 +1,72 @@
+# OS and editors
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Logs and diagnostics
+*.log
+logs/
+diagnostics/
+crash-dumps/
+
+# Node / frontend
+node_modules/
+app/frontend/node_modules/
+app/frontend/dist/
+app/frontend/build/
+app/frontend/.vite/
+app/frontend/coverage/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+frontend/coverage/
+frontend/.next/
+frontend/.turbo/
+pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Rust
+target/
+Cargo.lock.orig
+*.rs.bk
+
+# Windows build outputs
+*.msi
+*.msix
+*.appx
+*.exe
+*.pdb
+*.zip
+dist/
+release/
+artifacts/
+
+# Installer and signing local outputs
+*.cer
+*.crt
+*.sig
+*.timestamp
+signing/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak

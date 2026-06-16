@@ -1,0 +1,13 @@
+{
+  "id": "common",
+  "name": "Общий режим",
+  "description": "General safe profile",
+  "status": "stable",
+  "version": "1.0.0",
+  "targets": ["web"],
+  "health_checks": ["dns", "tcp", "https"],
+  "engine_profile_ref": "common-default",
+  "fallback_profiles": ["common-safe"],
+  "risk_level": "low",
+  "notes": "No low-level strategy values in initial scaffold"
+}

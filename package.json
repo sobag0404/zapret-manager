@@ -1,0 +1,19 @@
+{
+  "name": "zapret-manager",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "dev": "corepack pnpm --dir app/frontend dev",
+    "build": "corepack pnpm --dir app/frontend build",
+    "test": "vitest run",
+    "tauri:dev": "cargo tauri dev --manifest-path app/tauri/Cargo.toml",
+    "tauri:build": "cargo tauri build --manifest-path app/tauri/Cargo.toml",
+    "rust:test": "cargo test --workspace",
+    "verify": "corepack pnpm test && corepack pnpm build && cargo test --workspace"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "vitest": "^3.2.4"
+  }
+}

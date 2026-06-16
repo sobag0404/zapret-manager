@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Zapret Manager",
+  "version": "0.1.0",
+  "identifier": "local.zapret.manager",
+  "build": {
+    "beforeDevCommand": "pnpm --dir ../frontend dev --host 127.0.0.1",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm --dir ../frontend build",
+    "frontendDist": "../frontend/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Zapret Manager",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 980,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "trayIcon": {
+      "iconPath": "icons/icon.ico",
+      "iconAsTemplate": false
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "resources": {
+      "../../profiles": "profiles",
+      "../../strategies": "strategies",
+      "../../engine": "engine"
+    },
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "perMachine",
+        "displayLanguageSelector": true
+      }
+    }
+  }
+}

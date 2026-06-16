@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release draft
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install frontend dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Test frontend
+        working-directory: app/frontend
+        run: pnpm test
+
+      - name: Build frontend
+        working-directory: app/frontend
+        run: pnpm build
+
+      - name: Test Rust workspace
+        run: cargo test --workspace --all-features
+
+      - name: Build Rust release
+        run: cargo build --workspace --release
+
+      - name: Package release
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.tag || github.ref_name }}"
+          New-Item -ItemType Directory -Force -Path release
+          if (Test-Path app/frontend/dist) {
+            Compress-Archive -Path app/frontend/dist/* -DestinationPath "release/zapret-manager-frontend-$version.zip" -Force
+          }
+          Get-ChildItem target/release -File |
+            Where-Object { $_.Extension -in ".exe", ".dll", ".pdb" } |
+            Copy-Item -Destination release -Force
+          Get-ChildItem release -File |
+            Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" } |
+            Set-Content -Encoding utf8 release/SHA256SUMS.txt
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: release/*
+          tag_name: ${{ inputs.tag || github.ref_name }}

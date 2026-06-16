@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zapret Manager Strategy",
+  "type": "object",
+  "required": ["id", "profile_id", "channel", "version", "updated_at", "engine_profile_ref", "health_checks", "fallback_strategy", "rollback_supported", "notes"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+    "profile_id": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+    "channel": { "enum": ["stable", "experimental"] },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "engine_profile_ref": { "type": "string", "minLength": 1 },
+    "health_checks": { "type": "array", "items": { "enum": ["dns", "tcp", "https"] }, "minItems": 1 },
+    "fallback_strategy": { "type": "string", "minLength": 1 },
+    "rollback_supported": { "type": "boolean" },
+    "notes": { "type": "string", "pattern": "No real low-level parameters in scaffold" }
+  }
+}
