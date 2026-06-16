@@ -7,6 +7,7 @@ export function Dashboard() {
   const { status, profiles, selectedProfiles, diagnostics, loading } = useAppStore();
   const errors = diagnostics.filter((item) => item.status === "error").length;
   const warnings = diagnostics.filter((item) => item.status === "warning").length;
+  const engineIssue = diagnostics.find((item) => item.id === "engine_found" && item.status !== "ok");
 
   return (
     <div className="page-stack">
@@ -55,7 +56,13 @@ export function Dashboard() {
           tone={errors > 0 ? "error" : warnings > 0 ? "warning" : "ok"}
         />
         <StatusCard icon={Layers3} label="Режимы" value={selectedProfiles.length.toString()} detail={selectedProfiles.join(", ") || "Не выбрано"} />
-        <StatusCard icon={Activity} label="Engine" value="Mock" detail="Сторонние бинарники не запускаются" tone="warning" />
+        <StatusCard
+          icon={Activity}
+          label="Engine"
+          value={engineIssue ? "Не подключён" : "Готов"}
+          detail={engineIssue?.action ?? engineIssue?.problem ?? "Manifest и hash проверены"}
+          tone={engineIssue ? "error" : "ok"}
+        />
       </section>
     </div>
   );

@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use zapret_manager_core::{
     append_debug_log, append_user_log, AppSettings, AppStatus, DiagnosticItem, DiagnosticReport,
-    DiagnosticStatus, Profile, ProfileStatus, Result, RuntimeStatus, StrategyUpdateManifest,
-    SystemSnapshot, TrustedSource, TrustedSources, VpnConflict, ZapretError,
+    DiagnosticStatus, EngineManifest, Profile, ProfileStatus, Result, RuntimeStatus,
+    StrategyUpdateManifest, SystemSnapshot, TrustedSource, TrustedSources, VpnConflict,
+    ZapretError,
 };
 
 static STATE: OnceLock<Mutex<ServiceClient>> = OnceLock::new();
@@ -92,6 +93,13 @@ impl ServiceClient {
             ));
         }
 
+        let engine = self.engine_readiness();
+        if !engine.ready {
+            self.log_user("Включение не выполнено: реальный engine не подключён.")?;
+            self.log_debug("warn", "enable_blocked_engine_missing", &engine.message)?;
+            return Err(ZapretError::Operation(engine.message));
+        }
+
         let vpn = detect_vpn_conflict();
         self.log_debug(
             "info",
@@ -130,11 +138,7 @@ impl ServiceClient {
         self.enabled_profiles = profiles.clone();
         self.enabled = true;
         self.log_user(&format!("Режим включён: {}.", profiles.join(", ")))?;
-        self.log_debug(
-            "info",
-            "engine_mock_enabled",
-            "external engine was not launched; no DNS/proxy/routes were changed",
-        )?;
+        self.log_debug("info", "engine_ready", &engine.message)?;
         self.status()
     }
 
@@ -159,6 +163,7 @@ impl ServiceClient {
     pub fn diagnostics(&self) -> DiagnosticReport {
         let vpn = detect_vpn_conflict();
         let profiles_found = !self.list_profiles().unwrap_or_default().is_empty();
+        let engine = self.engine_readiness();
         DiagnosticReport::aggregate(vec![
             diag(
                 "admin",
@@ -181,14 +186,26 @@ impl ServiceClient {
             diag(
                 "engine_found",
                 "Engine найден",
-                DiagnosticStatus::Warning,
-                "Реальный engine пока не подключён. Сторонние бинарники не запускаются.",
+                if engine.ready {
+                    DiagnosticStatus::Ok
+                } else {
+                    DiagnosticStatus::Error
+                },
+                &engine.message,
             ),
             diag(
                 "engine_hash",
                 "Engine hash совпадает",
-                DiagnosticStatus::Skipped,
-                "Проверка будет активна после подключения проверенного engine manifest.",
+                if engine.ready {
+                    DiagnosticStatus::Ok
+                } else {
+                    DiagnosticStatus::Skipped
+                },
+                if engine.ready {
+                    "Engine manifest и hash проверены."
+                } else {
+                    "Проверка будет активна после подключения engine manifest с файлами."
+                },
             ),
             diag(
                 "driver",
@@ -438,6 +455,60 @@ impl ServiceClient {
             detail,
         )
     }
+
+    fn engine_readiness(&self) -> EngineReadiness {
+        let manifest_path = self.content_root.join("engine").join("manifest.json");
+        let engine_dir = self.content_root.join("engine").join("local");
+        let trusted = TrustedSources {
+            sources: vec![TrustedSource {
+                name: "local-engine".to_string(),
+                base_url: "file:///local/mock-engine".to_string(),
+                pinned_manifest_sha256: None,
+            }],
+        };
+
+        let manifest: EngineManifest =
+            match zapret_manager_core::load_engine_manifest(&manifest_path) {
+                Ok(manifest) => manifest,
+                Err(err) => {
+                    return EngineReadiness {
+                        ready: false,
+                        message: format!("Engine manifest не найден или повреждён: {err}."),
+                    }
+                }
+            };
+
+        if manifest.files.is_empty() {
+            return EngineReadiness {
+                ready: false,
+                message: "Реальный engine не подключён. Сейчас это безопасный manager-каркас: он не запускает zapret и не меняет доступ к Discord/YouTube.".to_string(),
+            };
+        }
+
+        if let Err(err) = manifest.validate(&trusted) {
+            return EngineReadiness {
+                ready: false,
+                message: format!("Engine manifest не прошёл trusted-source проверку: {err}."),
+            };
+        }
+
+        if let Err(err) = manifest.verify_files(&engine_dir, &engine_dir) {
+            return EngineReadiness {
+                ready: false,
+                message: format!("Engine hash verification failed: {err}."),
+            };
+        }
+
+        EngineReadiness {
+            ready: true,
+            message: "Engine manifest найден, trusted-source и hash проверены.".to_string(),
+        }
+    }
+}
+
+struct EngineReadiness {
+    ready: bool,
+    message: String,
 }
 
 fn diag(id: &str, title: &str, status: DiagnosticStatus, action: &str) -> DiagnosticItem {
