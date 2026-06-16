@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use zapret_manager_core::{
     append_debug_log, append_user_log, AppSettings, AppStatus, DiagnosticItem, DiagnosticReport,
@@ -9,21 +9,23 @@ use zapret_manager_core::{
 static STATE: OnceLock<Mutex<ServiceClient>> = OnceLock::new();
 
 pub fn client() -> &'static Mutex<ServiceClient> {
-    STATE.get_or_init(|| Mutex::new(ServiceClient::new(project_root())))
+    STATE.get_or_init(|| Mutex::new(ServiceClient::new(project_root(), data_root())))
 }
 
 #[derive(Debug)]
 pub struct ServiceClient {
-    root: PathBuf,
+    content_root: PathBuf,
+    data_root: PathBuf,
     enabled_profiles: Vec<String>,
     enabled: bool,
     settings: AppSettings,
 }
 
 impl ServiceClient {
-    pub fn new(root: PathBuf) -> Self {
+    pub fn new(content_root: PathBuf, data_root: PathBuf) -> Self {
         Self {
-            root,
+            content_root,
+            data_root,
             enabled_profiles: Vec::new(),
             enabled: false,
             settings: AppSettings::default(),
@@ -40,7 +42,7 @@ impl ServiceClient {
             enabled_profiles: self.enabled_profiles.clone(),
             profiles: self.list_profiles()?,
             message: if self.enabled {
-                "Работает в mock-режиме".to_string()
+                "Работает".to_string()
             } else {
                 "Отключено".to_string()
             },
@@ -48,7 +50,7 @@ impl ServiceClient {
     }
 
     pub fn list_profiles(&self) -> Result<Vec<Profile>> {
-        let dir = self.root.join("profiles");
+        let dir = self.content_root.join("profiles");
         let mut profiles = Vec::new();
         if dir.exists() {
             for entry in
@@ -87,7 +89,7 @@ impl ServiceClient {
         let vpn = detect_vpn_conflict();
         if self.settings.safety_mode && !self.settings.allow_vpn_conflict && vpn.detected {
             append_debug_log(
-                &self.root.join("logs").join("debug.jsonl"),
+                &self.data_root.join("logs").join("debug.jsonl"),
                 "warn",
                 "vpn_conflict_blocked_enable",
                 &format!("active adapters: {}", vpn.adapter_names.join(", ")),
@@ -97,11 +99,15 @@ impl ServiceClient {
                 vpn.adapter_names.join(", ")
             )));
         }
+
         let snapshot = SystemSnapshot::mock(profiles.clone(), vec!["strategies:1.0.0".to_string()]);
-        snapshot.save(&self.root.join("snapshots"))?;
-        append_user_log(&self.root.join("logs").join("user.log"), "Режим включён.")?;
+        snapshot.save(&self.data_root.join("snapshots"))?;
+        append_user_log(
+            &self.data_root.join("logs").join("user.log"),
+            "Режим включён.",
+        )?;
         append_debug_log(
-            &self.root.join("logs").join("debug.jsonl"),
+            &self.data_root.join("logs").join("debug.jsonl"),
             "info",
             "enable",
             "mock service enabled without launching external engine",
@@ -112,9 +118,12 @@ impl ServiceClient {
     }
 
     pub fn disable_all(&mut self) -> Result<AppStatus> {
-        append_user_log(&self.root.join("logs").join("user.log"), "Режим выключен.")?;
+        append_user_log(
+            &self.data_root.join("logs").join("user.log"),
+            "Режим выключен.",
+        )?;
         append_debug_log(
-            &self.root.join("logs").join("debug.jsonl"),
+            &self.data_root.join("logs").join("debug.jsonl"),
             "info",
             "disable",
             "mock safe revert completed",
@@ -126,36 +135,37 @@ impl ServiceClient {
 
     pub fn diagnostics(&self) -> DiagnosticReport {
         let vpn = detect_vpn_conflict();
+        let profiles_found = !self.list_profiles().unwrap_or_default().is_empty();
         DiagnosticReport::aggregate(vec![
             diag(
                 "admin",
                 "Права администратора",
                 DiagnosticStatus::Warning,
-                "Запустите от имени администратора для реального управления службой.",
+                "Для реальной службы потребуется запуск от имени администратора.",
             ),
             diag(
                 "service_installed",
                 "Служба установлена",
                 DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                "Mock-служба доступна.",
             ),
             diag(
                 "service_running",
                 "Служба запущена",
                 DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                "Mock-служба отвечает.",
             ),
             diag(
                 "engine_found",
                 "Engine найден",
                 DiagnosticStatus::Warning,
-                "Подключите проверенный engine manifest.",
+                "Реальный engine пока не подключён. Сторонние бинарники не запускаются.",
             ),
             diag(
                 "engine_hash",
                 "Engine hash совпадает",
                 DiagnosticStatus::Skipped,
-                "Будет проверяться после подключения engine.",
+                "Проверка будет активна после подключения проверенного engine manifest.",
             ),
             diag(
                 "driver",
@@ -166,44 +176,52 @@ impl ServiceClient {
             diag(
                 "profile_valid",
                 "Профили валидны",
-                DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                if profiles_found {
+                    DiagnosticStatus::Ok
+                } else {
+                    DiagnosticStatus::Error
+                },
+                if profiles_found {
+                    "Профили найдены и загружены."
+                } else {
+                    "Папка profiles не найдена рядом с приложением."
+                },
             ),
             diag(
                 "strategy_valid",
                 "Стратегии валидны",
                 DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                "Mock-стратегии доступны.",
             ),
             diag(
                 "dns",
                 "DNS работает",
                 DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                "DNS mock-проверка успешна.",
             ),
             diag(
                 "internet",
                 "Интернет доступен",
                 DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                "Высокоуровневая mock-проверка успешна.",
             ),
             diag(
                 "discord",
                 "Discord доступен",
                 DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                "Mock-проверка Discord успешна.",
             ),
             diag(
                 "youtube",
                 "YouTube доступен",
                 DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                "Mock-проверка YouTube успешна.",
             ),
             diag(
                 "telegram",
                 "Telegram доступен",
                 DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                "Mock-проверка Telegram успешна.",
             ),
             DiagnosticItem {
                 id: "vpn".to_string(),
@@ -219,9 +237,9 @@ impl ServiceClient {
                     None
                 },
                 action: Some(if vpn.detected {
-                    "Не включайте режим одновременно с VPN или включите совместимость вручную в настройках.".to_string()
+                    "Не включайте режим одновременно с VPN или явно разрешите совместимость в настройках.".to_string()
                 } else {
-                    "Действий не требуется.".to_string()
+                    "Конфликт с VPN не найден.".to_string()
                 }),
             },
             diag(
@@ -232,39 +250,39 @@ impl ServiceClient {
             ),
             diag(
                 "antivirus",
-                "Нет конфликта с антивирусом",
+                "Конфликт с антивирусом",
                 DiagnosticStatus::Skipped,
-                "Антивирус не опрашивается.",
+                "Антивирус не опрашивается в mock-режиме.",
             ),
             diag(
                 "logs",
                 "Папка логов доступна",
                 DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                "Логи пишутся в локальную папку пользователя.",
             ),
             diag(
                 "snapshot",
                 "Snapshot можно создать",
                 DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                "Snapshot пишется в локальную папку пользователя.",
             ),
             diag(
                 "revert",
                 "Revert можно выполнить",
                 DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                "Mock safe revert доступен.",
             ),
             diag(
                 "strategy_integrity",
                 "Последняя стратегия не повреждена",
                 DiagnosticStatus::Ok,
-                "Действий не требуется.",
+                "Mock manifest валиден.",
             ),
         ])
     }
 
     pub fn read_user_logs(&self) -> Result<String> {
-        let path = self.root.join("logs").join("user.log");
+        let path = self.data_root.join("logs").join("user.log");
         if !path.exists() {
             return Ok("Лог пуст.".to_string());
         }
@@ -272,8 +290,8 @@ impl ServiceClient {
     }
 
     pub fn export_debug_logs(&self) -> Result<PathBuf> {
-        let source = self.root.join("logs").join("debug.jsonl");
-        let target = self.root.join("logs").join("debug-export.jsonl");
+        let source = self.data_root.join("logs").join("debug.jsonl");
+        let target = self.data_root.join("logs").join("debug-export.jsonl");
         if !source.exists() {
             fs::write(&source, "")
                 .map_err(|source_err| zapret_manager_core::io_error(&source, source_err))?;
@@ -371,5 +389,43 @@ fn detect_vpn_conflict() -> VpnConflict {
 }
 
 fn project_root() -> PathBuf {
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    let mut candidates = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        push_ancestors(&mut candidates, exe.parent());
+    }
+    if let Ok(current) = std::env::current_dir() {
+        push_ancestors(&mut candidates, Some(current.as_path()));
+    }
+
+    candidates
+        .into_iter()
+        .find(|candidate| has_bundled_content(candidate))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+}
+
+fn push_ancestors(candidates: &mut Vec<PathBuf>, start: Option<&Path>) {
+    let Some(mut current) = start else {
+        return;
+    };
+    for _ in 0..6 {
+        candidates.push(current.to_path_buf());
+        if let Some(resources) = current.to_str().map(|_| current.join("resources")) {
+            candidates.push(resources);
+        }
+        let Some(parent) = current.parent() else {
+            break;
+        };
+        current = parent;
+    }
+}
+
+fn has_bundled_content(path: &Path) -> bool {
+    path.join("profiles").is_dir() && path.join("strategies").is_dir()
+}
+
+fn data_root() -> PathBuf {
+    std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir())
+        .join("ZapretManager")
 }

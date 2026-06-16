@@ -12,10 +12,18 @@ export function ProfileCard({ profile, selected, loading, onToggle }: ProfileCar
   return (
     <article className={`profile-card ${selected ? "is-active" : ""}`}>
       <header>
-        <div>
-          <h3>{profile.name}</h3>
-          <p>{profile.description}</p>
-        </div>
+        <label className="profile-check">
+          <input
+            checked={selected}
+            disabled={loading}
+            onChange={(event) => onToggle(profile.id, event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            <h3>{profile.name}</h3>
+            <p>{profile.description}</p>
+          </span>
+        </label>
         {profile.status === "stable" ? <CheckCircle2 size={18} /> : <FlaskConical size={18} />}
       </header>
       <dl>
@@ -25,9 +33,6 @@ export function ProfileCard({ profile, selected, loading, onToggle }: ProfileCar
         <div><dt>Риск</dt><dd>{profile.risk_level}</dd></div>
       </dl>
       <p className="muted">{profile.notes}</p>
-      <button className="secondary-button" disabled={loading} onClick={() => onToggle(profile.id, !selected)}>
-        {selected ? "Отключить режим" : "Выбрать режим"}
-      </button>
     </article>
   );
 }

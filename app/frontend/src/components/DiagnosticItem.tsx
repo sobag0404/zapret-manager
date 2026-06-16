@@ -8,6 +8,13 @@ const icons = {
   skipped: CircleSlash,
 };
 
+const labels = {
+  ok: "OK",
+  warning: "Внимание",
+  error: "Ошибка",
+  skipped: "Пропущено",
+};
+
 export function DiagnosticItem({ item }: { item: DiagnosticItemModel }) {
   const Icon = icons[item.status];
   return (
@@ -15,9 +22,9 @@ export function DiagnosticItem({ item }: { item: DiagnosticItemModel }) {
       <Icon size={18} aria-hidden="true" />
       <div>
         <strong>{item.title}</strong>
-        <p>{item.problem ?? item.action ?? "OK"}</p>
+        <p>{item.problem ? `${item.problem} ${item.action ?? ""}` : item.action ?? "OK"}</p>
       </div>
-      <span>{item.status}</span>
+      <span>{labels[item.status]}</span>
     </article>
   );
 }

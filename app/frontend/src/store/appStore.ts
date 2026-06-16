@@ -63,6 +63,25 @@ async function runAction<T>(key: string, action: () => Promise<T>): Promise<T | 
   }
 }
 
+function nextSelectedProfiles(id: string, enabled: boolean): string[] {
+  const allProfileIds = state.profiles.map((profile) => profile.id);
+  const regularProfileIds = allProfileIds.filter((profileId) => profileId !== "common");
+
+  if (id === "common") {
+    return enabled ? allProfileIds : [];
+  }
+
+  if (!enabled) {
+    return state.selectedProfiles.filter((profileId) => profileId !== id && profileId !== "common");
+  }
+
+  const selected = Array.from(new Set([...state.selectedProfiles, id]));
+  if (regularProfileIds.every((profileId) => selected.includes(profileId))) {
+    return Array.from(new Set([...selected, "common"]));
+  }
+  return selected;
+}
+
 export const appActions = {
   setPage: (selectedPage: PageId) => setState({ selectedPage }),
   initialize: async () => {
@@ -87,10 +106,7 @@ export const appActions = {
     });
   },
   setProfileSelected: async (id: string, enabled: boolean) => {
-    const selectedProfiles = enabled
-      ? Array.from(new Set([...state.selectedProfiles, id]))
-      : state.selectedProfiles.filter((profileId) => profileId !== id);
-    setState({ selectedProfiles, error: null });
+    setState({ selectedProfiles: nextSelectedProfiles(id, enabled), error: null });
   },
   toggleEnabled: async () => {
     if (state.status?.status !== "running" && state.selectedProfiles.length === 0) {
@@ -99,7 +115,10 @@ export const appActions = {
     }
     const status = await runAction("toggle", () => tauriCommands.toggleEnabled(state.selectedProfiles));
     if (status) {
-      setState({ status, selectedProfiles: status.enabled_profiles.length ? status.enabled_profiles : state.selectedProfiles });
+      setState({
+        status,
+        selectedProfiles: status.enabled_profiles.length ? status.enabled_profiles : state.selectedProfiles,
+      });
       await appActions.refreshLogs();
     }
   },

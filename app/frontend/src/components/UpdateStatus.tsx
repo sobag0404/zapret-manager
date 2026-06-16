@@ -25,7 +25,7 @@ export function UpdateStatus({ info, loading, onCheck, onApply, onRollback }: Up
       </div>
       <div className="button-row">
         <button className="primary-button" disabled={loading} onClick={onCheck}>Проверить обновления</button>
-        <button className="secondary-button" disabled={loading} onClick={onApply}>Применить mock</button>
+        <button className="secondary-button" disabled={loading} onClick={onApply}>Применить mock-обновление</button>
         <button className="secondary-button" disabled={loading} onClick={onRollback}>Откатить стратегию</button>
       </div>
     </section>

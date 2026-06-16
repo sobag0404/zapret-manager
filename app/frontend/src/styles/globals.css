@@ -424,6 +424,25 @@ main {
   gap: 12px;
 }
 
+.profile-check {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.profile-check input {
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.profile-check span {
+  min-width: 0;
+}
+
 .profile-card h3,
 .diagnostic-item h3,
 .recovery-action h3 {

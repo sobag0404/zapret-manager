@@ -6,8 +6,10 @@ export function Updates() {
   return (
     <div className="page-stack">
       <header className="page-header">
-        <span className="eyebrow">Обновления</span>
-        <h1>App / Strategies / Engine</h1>
+        <div>
+          <span className="eyebrow">Обновления</span>
+          <h1>Обновления</h1>
+        </div>
       </header>
       <UpdateStatus
         info={updateStatus}

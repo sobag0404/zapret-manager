@@ -23,8 +23,11 @@ export function Dashboard() {
           <span className="eyebrow">Режимы</span>
           <h2>Выберите один или несколько</h2>
         </div>
-        <div className="mode-grid">
-          {profiles.map((profile) => {
+        {profiles.length === 0 ? (
+          <p className="empty-state">Профили не найдены. Переустановите приложение или проверьте папку profiles рядом с .exe.</p>
+        ) : (
+          <div className="mode-grid">
+            {profiles.map((profile) => {
             const selected = selectedProfiles.includes(profile.id);
             return (
               <label className={`mode-option ${selected ? "is-selected" : ""}`} key={profile.id}>
@@ -39,8 +42,9 @@ export function Dashboard() {
                 </span>
               </label>
             );
-          })}
-        </div>
+            })}
+          </div>
+        )}
       </section>
       <section className="status-grid">
         <StatusCard

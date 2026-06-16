@@ -17,7 +17,7 @@ export function RecoveryAction({ id, title, description, loading, onRun }: Recov
         <p>{description}</p>
       </div>
       <button className="secondary-button" disabled={loading} onClick={() => onRun(id)}>
-        {loading ? "..." : "Выполнить"}
+        {loading ? "Выполняется" : "Выполнить"}
       </button>
     </article>
   );
