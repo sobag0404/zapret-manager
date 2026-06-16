@@ -60,19 +60,19 @@ jobs:
       - name: Test Rust workspace
         run: cargo test --workspace --all-features
 
-      - name: Build Rust release
-        run: cargo build --workspace --release
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version 2.11.2 --locked
+
+      - name: Build Windows installer
+        working-directory: app/tauri
+        run: cargo tauri build
 
       - name: Package release
         shell: pwsh
         run: |
           $version = "${{ inputs.tag || github.ref_name }}"
           New-Item -ItemType Directory -Force -Path release
-          if (Test-Path app/frontend/dist) {
-            Compress-Archive -Path app/frontend/dist/* -DestinationPath "release/zapret-manager-frontend-$version.zip" -Force
-          }
-          Get-ChildItem target/release -File |
-            Where-Object { $_.Extension -in ".exe", ".dll", ".pdb" } |
+          Get-ChildItem target/release/bundle/nsis -Filter "*.exe" |
             Copy-Item -Destination release -Force
           Get-ChildItem release -File |
             Get-FileHash -Algorithm SHA256 |

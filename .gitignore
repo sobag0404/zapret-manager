@@ -30,6 +30,7 @@ app/frontend/dist/
 app/frontend/build/
 app/frontend/.vite/
 app/frontend/coverage/
+app/tauri/gen/
 frontend/node_modules/
 frontend/dist/
 frontend/build/

@@ -58,19 +58,18 @@ jobs:
       - name: Test Rust workspace
         run: cargo test --workspace --all-features
 
-      - name: Build Rust workspace
-        run: cargo build --workspace --release
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version 2.11.2 --locked
+
+      - name: Build Windows installer
+        working-directory: app/tauri
+        run: cargo tauri build
 
       - name: Collect artifacts
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts
-          if (Test-Path app/frontend/dist) {
-            Compress-Archive -Path app/frontend/dist/* -DestinationPath artifacts/frontend-dist.zip -Force
-          }
-          Get-ChildItem target/release -File |
-            Where-Object { $_.Extension -in ".exe", ".dll", ".pdb" } |
-            Copy-Item -Destination artifacts -Force
+          Copy-Item "target/release/bundle/nsis/*.exe" -Destination artifacts -Force
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

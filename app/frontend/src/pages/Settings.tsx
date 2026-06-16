@@ -37,6 +37,10 @@ export function Settings() {
           <input checked={draft.safety_mode} onChange={(event) => setDraft({ ...draft, safety_mode: event.target.checked })} type="checkbox" />
           <span>Режим безопасности</span>
         </label>
+        <label className="switch-row">
+          <input checked={draft.allow_vpn_conflict} onChange={(event) => setDraft({ ...draft, allow_vpn_conflict: event.target.checked })} type="checkbox" />
+          <span>Разрешить запуск при активном VPN</span>
+        </label>
         <label>
           Канал стратегий
           <select value={draft.strategy_channel} onChange={(event) => setDraft({ ...draft, strategy_channel: event.target.value })}>

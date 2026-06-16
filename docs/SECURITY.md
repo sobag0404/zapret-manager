@@ -37,6 +37,8 @@ making update provenance explicit, and keeping diagnostics private by default.
 - The service never accepts raw shell snippets from the frontend.
 - File writes are constrained to owned application directories.
 - Runtime arguments are derived from validated profile and strategy data.
+- In safety mode, enabling profiles is blocked when an active VPN-like adapter
+  is detected unless the user explicitly enables VPN compatibility.
 - Service start/stop/update operations are logged with timestamps and caller
   identity when available.
 

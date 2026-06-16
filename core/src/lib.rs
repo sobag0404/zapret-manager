@@ -12,6 +12,7 @@ pub mod snapshot;
 pub mod strategy_updater;
 pub mod trusted_sources;
 pub mod update_manifest;
+pub mod vpn_conflict;
 
 pub use app_state::*;
 pub use config::*;
@@ -23,3 +24,4 @@ pub use profiles::*;
 pub use revert_plan::*;
 pub use snapshot::*;
 pub use update_manifest::*;
+pub use vpn_conflict::*;

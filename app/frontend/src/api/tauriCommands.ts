@@ -50,6 +50,7 @@ export interface AppSettings {
   logs_path: string;
   engine_path: string;
   safety_mode: boolean;
+  allow_vpn_conflict: boolean;
 }
 
 type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
@@ -83,6 +84,7 @@ let mockSettings: AppSettings = {
   logs_path: "logs",
   engine_path: "engine/local",
   safety_mode: true,
+  allow_vpn_conflict: false,
 };
 
 let userLog = `${new Date().toLocaleTimeString()} - Приложение запущено.\n`;
@@ -134,7 +136,7 @@ function mockDiagnostics(): DiagnosticReport {
     diag("discord", "Discord доступен", "ok", "Действий не требуется."),
     diag("youtube", "YouTube доступен", "ok", "Действий не требуется."),
     diag("telegram", "Telegram доступен", "ok", "Действий не требуется."),
-    diag("vpn", "Нет конфликта с VPN", "skipped", "Автоопределение будет добавлено через Windows API."),
+    diag("vpn", "Конфликт с VPN", "warning", "Если VPN включён, safety mode не даст запустить режим без явного разрешения."),
     diag("proxy", "Нет конфликта с proxy", "ok", "Proxy не менялся."),
     diag("antivirus", "Нет конфликта с антивирусом", "skipped", "Антивирус не опрашивается."),
     diag("logs", "Папка логов доступна", "ok", "Действий не требуется."),

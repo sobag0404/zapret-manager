@@ -34,3 +34,9 @@ The diagnostics exporter must redact:
 
 Diagnostic export is opt-in. The UI should preview the report or summarize
 included categories before the user shares it.
+
+## VPN Conflict
+
+- Active VPN-like adapters are reported as a warning.
+- Safety mode blocks profile enable while a VPN conflict is detected.
+- Running together with VPN requires explicit user consent in settings.

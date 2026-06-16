@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use zapret_manager_core::{
     append_debug_log, append_user_log, AppSettings, AppStatus, DiagnosticItem, DiagnosticReport,
-    DiagnosticStatus, Profile, Result, RuntimeStatus, SystemSnapshot,
+    DiagnosticStatus, Profile, Result, RuntimeStatus, SystemSnapshot, VpnConflict, ZapretError,
 };
 
 static STATE: OnceLock<Mutex<ServiceClient>> = OnceLock::new();
@@ -80,9 +80,22 @@ impl ServiceClient {
 
     pub fn enable(&mut self, profiles: Vec<String>) -> Result<AppStatus> {
         if profiles.is_empty() {
-            return Err(zapret_manager_core::ZapretError::Operation(
+            return Err(ZapretError::Operation(
                 "Выберите хотя бы один режим.".to_string(),
             ));
+        }
+        let vpn = detect_vpn_conflict();
+        if self.settings.safety_mode && !self.settings.allow_vpn_conflict && vpn.detected {
+            append_debug_log(
+                &self.root.join("logs").join("debug.jsonl"),
+                "warn",
+                "vpn_conflict_blocked_enable",
+                &format!("active adapters: {}", vpn.adapter_names.join(", ")),
+            )?;
+            return Err(ZapretError::Operation(format!(
+                "Обнаружен активный VPN: {}. Включение заблокировано режимом безопасности.",
+                vpn.adapter_names.join(", ")
+            )));
         }
         let snapshot = SystemSnapshot::mock(profiles.clone(), vec!["strategies:1.0.0".to_string()]);
         snapshot.save(&self.root.join("snapshots"))?;
@@ -112,6 +125,7 @@ impl ServiceClient {
     }
 
     pub fn diagnostics(&self) -> DiagnosticReport {
+        let vpn = detect_vpn_conflict();
         DiagnosticReport::aggregate(vec![
             diag(
                 "admin",
@@ -191,12 +205,25 @@ impl ServiceClient {
                 DiagnosticStatus::Ok,
                 "Действий не требуется.",
             ),
-            diag(
-                "vpn",
-                "Нет конфликта с VPN",
-                DiagnosticStatus::Skipped,
-                "Автоопределение будет добавлено через Windows API.",
-            ),
+            DiagnosticItem {
+                id: "vpn".to_string(),
+                title: "Конфликт с VPN".to_string(),
+                status: if vpn.detected {
+                    DiagnosticStatus::Warning
+                } else {
+                    DiagnosticStatus::Ok
+                },
+                problem: if vpn.detected {
+                    Some(format!("Активный VPN: {}.", vpn.adapter_names.join(", ")))
+                } else {
+                    None
+                },
+                action: Some(if vpn.detected {
+                    "Не включайте режим одновременно с VPN или включите совместимость вручную в настройках.".to_string()
+                } else {
+                    "Действий не требуется.".to_string()
+                }),
+            },
             diag(
                 "proxy",
                 "Нет конфликта с proxy",
@@ -277,6 +304,60 @@ fn diag(id: &str, title: &str, status: DiagnosticStatus, action: &str) -> Diagno
         },
         action: Some(action.to_string()),
     }
+}
+
+fn detect_vpn_conflict() -> VpnConflict {
+    if std::env::var("ZAPRET_MANAGER_MOCK_VPN_ACTIVE").unwrap_or_default() == "1" {
+        return VpnConflict {
+            detected: true,
+            adapter_names: vec!["mock-vpn".to_string()],
+            message: "VPN conflict forced by environment.".to_string(),
+        };
+    }
+
+    #[cfg(windows)]
+    {
+        let output = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | Select-Object -ExpandProperty Name",
+            ])
+            .output();
+        if let Ok(output) = output {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let adapter_names = text
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .filter(|line| {
+                    let lower = line.to_ascii_lowercase();
+                    [
+                        "vpn",
+                        "wireguard",
+                        "openvpn",
+                        "tap",
+                        "tun",
+                        "tailscale",
+                        "zerotier",
+                    ]
+                    .iter()
+                    .any(|marker| lower.contains(marker))
+                })
+                .map(ToString::to_string)
+                .collect::<Vec<_>>();
+            if !adapter_names.is_empty() {
+                return VpnConflict {
+                    detected: true,
+                    adapter_names,
+                    message: "VPN-like active adapter detected.".to_string(),
+                };
+            }
+        }
+    }
+
+    VpnConflict::none()
 }
 
 fn project_root() -> PathBuf {

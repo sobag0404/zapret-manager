@@ -42,19 +42,21 @@ cargo test --workspace --all-features
 Development GUI:
 
 ```powershell
-pnpm --dir app/frontend dev
-cargo tauri dev --manifest-path app/tauri/Cargo.toml
+corepack pnpm --dir app/frontend dev
+cd app/tauri
+cargo tauri dev
 ```
 
 Build Windows installer:
 
 ```powershell
-pnpm build
-cargo tauri build --manifest-path app/tauri/Cargo.toml
+corepack pnpm build
+cd app/tauri
+cargo tauri build
 ```
 
 The installer artifact is produced by Tauri/NSIS under
-`app/tauri/target/release/bundle/nsis/`.
+`target/release/bundle/nsis/`.
 
 ## CI
 

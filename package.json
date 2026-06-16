@@ -7,8 +7,8 @@
     "dev": "corepack pnpm --dir app/frontend dev",
     "build": "corepack pnpm --dir app/frontend build",
     "test": "vitest run",
-    "tauri:dev": "cargo tauri dev --manifest-path app/tauri/Cargo.toml",
-    "tauri:build": "cargo tauri build --manifest-path app/tauri/Cargo.toml",
+    "tauri:dev": "cd app/tauri && cargo tauri dev",
+    "tauri:build": "cd app/tauri && cargo tauri build",
     "rust:test": "cargo test --workspace",
     "verify": "corepack pnpm test && corepack pnpm build && cargo test --workspace"
   },
