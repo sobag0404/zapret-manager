@@ -90,10 +90,13 @@ export const appActions = {
     const selectedProfiles = enabled
       ? Array.from(new Set([...state.selectedProfiles, id]))
       : state.selectedProfiles.filter((profileId) => profileId !== id);
-    setState({ selectedProfiles });
-    await runAction(`profile:${id}`, () => tauriCommands.setProfileEnabled(id, enabled));
+    setState({ selectedProfiles, error: null });
   },
   toggleEnabled: async () => {
+    if (state.status?.status !== "running" && state.selectedProfiles.length === 0) {
+      setState({ error: "Выберите хотя бы один режим: Discord, YouTube, Telegram или Общий." });
+      return;
+    }
     const status = await runAction("toggle", () => tauriCommands.toggleEnabled(state.selectedProfiles));
     if (status) {
       setState({ status, selectedProfiles: status.enabled_profiles.length ? status.enabled_profiles : state.selectedProfiles });

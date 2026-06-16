@@ -65,7 +65,7 @@ impl ServiceClient {
                 }
             }
         }
-        profiles.sort_by(|a, b| a.id.cmp(&b.id));
+        profiles.sort_by_key(|profile| profile_order(&profile.id));
         Ok(profiles)
     }
 
@@ -303,6 +303,16 @@ fn diag(id: &str, title: &str, status: DiagnosticStatus, action: &str) -> Diagno
             _ => Some(format!("Проблема: {title}.")),
         },
         action: Some(action.to_string()),
+    }
+}
+
+fn profile_order(id: &str) -> usize {
+    match id {
+        "discord" => 0,
+        "youtube" => 1,
+        "telegram" => 2,
+        "common" => 3,
+        _ => 99,
     }
 }
 
