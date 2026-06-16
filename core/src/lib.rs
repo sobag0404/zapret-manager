@@ -23,5 +23,7 @@ pub use logs::*;
 pub use profiles::*;
 pub use revert_plan::*;
 pub use snapshot::*;
+pub use strategy_updater::*;
+pub use trusted_sources::*;
 pub use update_manifest::*;
 pub use vpn_conflict::*;

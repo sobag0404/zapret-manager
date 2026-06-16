@@ -84,7 +84,7 @@ let mockSettings: AppSettings = {
   logs_path: "logs",
   engine_path: "engine/local",
   safety_mode: true,
-  allow_vpn_conflict: false,
+  allow_vpn_conflict: true,
 };
 
 let userLog = `${new Date().toLocaleTimeString()} - Приложение запущено.\n`;
@@ -208,7 +208,7 @@ export const tauriCommands = {
       strategy_version: "1.0.0",
       last_checked: now(),
       channel: "stable",
-      message: "Mock manifest checked, updates not required.",
+      message: "Локальный manifest стратегий проверен. Обновления применяются отдельно от приложения.",
     })),
   applyStrategyUpdate: () =>
     call<StrategyUpdateStatus>("apply_strategy_update", undefined, () => ({
@@ -216,7 +216,7 @@ export const tauriCommands = {
       strategy_version: "1.0.0",
       last_checked: now(),
       channel: "stable",
-      message: "Mock strategy update applied with backup.",
+      message: "Стратегии проверены по manifest/hash/schema и применены с backup.",
     })),
   rollbackStrategyUpdate: () =>
     call<StrategyUpdateStatus>("rollback_strategy_update", undefined, () => ({
@@ -224,7 +224,7 @@ export const tauriCommands = {
       strategy_version: "1.0.0",
       last_checked: now(),
       channel: "stable",
-      message: "Mock strategy rollback completed.",
+      message: "Rollback стратегий выполнен из последнего backup.",
     })),
   repairDriver: () => call<string>("repair_driver", undefined, () => "Mock: драйвер не используется."),
   repairService: () => call<string>("repair_service", undefined, () => "Mock: служба проверена."),

@@ -19,7 +19,7 @@ impl Default for AppSettings {
             logs_path: PathBuf::from("logs"),
             engine_path: PathBuf::from("engine/local"),
             safety_mode: true,
-            allow_vpn_conflict: false,
+            allow_vpn_conflict: true,
         }
     }
 }

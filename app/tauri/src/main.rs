@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod commands;
 mod service_client;
 
@@ -50,8 +52,8 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Открыть", true, None::<&str>)?;
     let toggle = MenuItem::with_id(app, "toggle", "Включить / Выключить", true, None::<&str>)?;
     let diagnostics = MenuItem::with_id(app, "diagnostics", "Диагностика", true, None::<&str>)?;
-    let recovery = MenuItem::with_id(app, "recovery", "Восстановить", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
+    let recovery = MenuItem::with_id(app, "recovery", "Восстановление", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Закрыть", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &toggle, &diagnostics, &recovery, &quit])?;
     let _tray = TrayIconBuilder::with_id("main")
         .menu(&menu)
@@ -63,21 +65,19 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 ..
             } = event
             {
-                if let Some(window) = tray.app_handle().get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                show_main_window(tray.app_handle());
             }
         })
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "open" | "diagnostics" | "recovery" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
+            "open" | "diagnostics" | "recovery" => show_main_window(app),
             "toggle" => handle_tray_toggle(app),
-            "quit" => app.exit(0),
+            "quit" => {
+                if let Ok(mut guard) = service_client::client().lock() {
+                    let _ = guard.disable_all();
+                }
+                set_tray_status(app, false);
+                app.exit(0);
+            }
             _ => {}
         })
         .build(app)?;

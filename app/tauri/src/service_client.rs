@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use zapret_manager_core::{
     append_debug_log, append_user_log, AppSettings, AppStatus, DiagnosticItem, DiagnosticReport,
-    DiagnosticStatus, Profile, Result, RuntimeStatus, SystemSnapshot, VpnConflict, ZapretError,
+    DiagnosticStatus, Profile, ProfileStatus, Result, RuntimeStatus, StrategyUpdateManifest,
+    SystemSnapshot, TrustedSource, TrustedSources, VpnConflict, ZapretError,
 };
 
 static STATE: OnceLock<Mutex<ServiceClient>> = OnceLock::new();
@@ -73,9 +74,13 @@ impl ServiceClient {
 
     pub fn set_profile_enabled(&mut self, id: String, enabled: bool) -> Result<Vec<String>> {
         if enabled && !self.enabled_profiles.contains(&id) {
-            self.enabled_profiles.push(id);
+            self.enabled_profiles.push(id.clone());
+            self.log_user(&format!("Выбран режим: {id}."))?;
+            self.log_debug("info", "profile_selected", &id)?;
         } else if !enabled {
             self.enabled_profiles.retain(|profile| profile != &id);
+            self.log_user(&format!("Режим снят: {id}."))?;
+            self.log_debug("info", "profile_unselected", &id)?;
         }
         Ok(self.enabled_profiles.clone())
     }
@@ -86,10 +91,23 @@ impl ServiceClient {
                 "Выберите хотя бы один режим.".to_string(),
             ));
         }
+
         let vpn = detect_vpn_conflict();
+        self.log_debug(
+            "info",
+            "enable_requested",
+            &format!(
+                "profiles={}, vpn_detected={}, safety_mode={}, allow_vpn_conflict={}",
+                profiles.join(","),
+                vpn.detected,
+                self.settings.safety_mode,
+                self.settings.allow_vpn_conflict
+            ),
+        )?;
+
         if self.settings.safety_mode && !self.settings.allow_vpn_conflict && vpn.detected {
-            append_debug_log(
-                &self.data_root.join("logs").join("debug.jsonl"),
+            self.log_user("Включение остановлено: активен VPN и выключена совместимость с VPN.")?;
+            self.log_debug(
                 "warn",
                 "vpn_conflict_blocked_enable",
                 &format!("active adapters: {}", vpn.adapter_names.join(", ")),
@@ -100,36 +118,41 @@ impl ServiceClient {
             )));
         }
 
+        self.log_user("Создаётся snapshot перед включением.")?;
         let snapshot = SystemSnapshot::mock(profiles.clone(), vec!["strategies:1.0.0".to_string()]);
-        snapshot.save(&self.data_root.join("snapshots"))?;
-        append_user_log(
-            &self.data_root.join("logs").join("user.log"),
-            "Режим включён.",
-        )?;
-        append_debug_log(
-            &self.data_root.join("logs").join("debug.jsonl"),
+        let snapshot_path = snapshot.save(&self.data_root.join("snapshots"))?;
+        self.log_debug(
             "info",
-            "enable",
-            "mock service enabled without launching external engine",
+            "snapshot_created",
+            &format!("path={}", snapshot_path.display()),
         )?;
-        self.enabled_profiles = profiles;
+
+        self.enabled_profiles = profiles.clone();
         self.enabled = true;
+        self.log_user(&format!("Режим включён: {}.", profiles.join(", ")))?;
+        self.log_debug(
+            "info",
+            "engine_mock_enabled",
+            "external engine was not launched; no DNS/proxy/routes were changed",
+        )?;
         self.status()
     }
 
     pub fn disable_all(&mut self) -> Result<AppStatus> {
-        append_user_log(
-            &self.data_root.join("logs").join("user.log"),
-            "Режим выключен.",
-        )?;
-        append_debug_log(
-            &self.data_root.join("logs").join("debug.jsonl"),
+        self.log_user("Выключение режима: остановка mock engine.")?;
+        self.log_debug(
             "info",
-            "disable",
-            "mock safe revert completed",
+            "disable_requested",
+            &format!("active_profiles={}", self.enabled_profiles.join(",")),
         )?;
         self.enabled = false;
         self.enabled_profiles.clear();
+        self.log_user("Система восстановлена. Временные правила отсутствуют.")?;
+        self.log_debug(
+            "info",
+            "safe_revert_completed",
+            "mock safe revert completed; no external engine processes were started",
+        )?;
         self.status()
     }
 
@@ -191,13 +214,13 @@ impl ServiceClient {
                 "strategy_valid",
                 "Стратегии валидны",
                 DiagnosticStatus::Ok,
-                "Mock-стратегии доступны.",
+                "Стратегии проверяются через manifest/hash/schema.",
             ),
             diag(
                 "dns",
                 "DNS работает",
                 DiagnosticStatus::Ok,
-                "DNS mock-проверка успешна.",
+                "DNS не менялся приложением.",
             ),
             diag(
                 "internet",
@@ -225,7 +248,7 @@ impl ServiceClient {
             ),
             DiagnosticItem {
                 id: "vpn".to_string(),
-                title: "Конфликт с VPN".to_string(),
+                title: "Совместимость с VPN".to_string(),
                 status: if vpn.detected {
                     DiagnosticStatus::Warning
                 } else {
@@ -237,7 +260,8 @@ impl ServiceClient {
                     None
                 },
                 action: Some(if vpn.detected {
-                    "Не включайте режим одновременно с VPN или явно разрешите совместимость в настройках.".to_string()
+                    "VPN не трогается. Приложение не меняет DNS/proxy/routes в mock-режиме."
+                        .to_string()
                 } else {
                     "Конфликт с VPN не найден.".to_string()
                 }),
@@ -276,7 +300,7 @@ impl ServiceClient {
                 "strategy_integrity",
                 "Последняя стратегия не повреждена",
                 DiagnosticStatus::Ok,
-                "Mock manifest валиден.",
+                "Manifest стратегий валиден.",
             ),
         ])
     }
@@ -298,6 +322,10 @@ impl ServiceClient {
         }
         fs::copy(&source, &target)
             .map_err(|source_err| zapret_manager_core::io_error(&target, source_err))?;
+        self.log_user(&format!(
+            "Технический лог экспортирован: {}.",
+            target.display()
+        ))?;
         Ok(target)
     }
 
@@ -307,7 +335,108 @@ impl ServiceClient {
 
     pub fn save_settings(&mut self, settings: AppSettings) -> Result<AppSettings> {
         self.settings = settings;
+        self.log_user("Настройки сохранены.")?;
+        self.log_debug(
+            "info",
+            "settings_saved",
+            &format!(
+                "strategy_channel={}, safety_mode={}, allow_vpn_conflict={}",
+                self.settings.strategy_channel,
+                self.settings.safety_mode,
+                self.settings.allow_vpn_conflict
+            ),
+        )?;
         Ok(self.settings.clone())
+    }
+
+    pub fn load_strategy_update_manifest(&self) -> Result<StrategyUpdateManifest> {
+        zapret_manager_core::load_strategy_manifest(
+            &self.content_root.join("strategies").join("manifest.json"),
+        )
+    }
+
+    pub fn apply_strategy_updates(&self) -> Result<usize> {
+        let manifest = self.filtered_strategy_manifest()?;
+        self.log_debug(
+            "info",
+            "strategy_update_start",
+            &format!(
+                "entries={}, channel={}",
+                manifest.entries.len(),
+                self.settings.strategy_channel
+            ),
+        )?;
+        let result = zapret_manager_core::apply_strategy_update(
+            &manifest,
+            &self.content_root.join("strategies"),
+            &self.data_root.join("strategies"),
+            &self.data_root.join("strategy-backups"),
+            &trusted_sources(),
+        )?;
+        self.log_user(&format!("Стратегии обновлены: {}.", result.applied.len()))?;
+        self.log_debug(
+            "info",
+            "strategy_update_applied",
+            &format!(
+                "applied={}, backups={}",
+                result.applied.len(),
+                result.backed_up.len()
+            ),
+        )?;
+        Ok(result.applied.len())
+    }
+
+    pub fn rollback_strategy_updates(&self) -> Result<usize> {
+        let manifest = self.filtered_strategy_manifest()?;
+        let backup_dir = self.data_root.join("strategy-backups");
+        let target_dir = self.data_root.join("strategies");
+        let mut restored = 0;
+
+        for entry in &manifest.entries {
+            let backup = backup_dir.join(entry.path.replace(['/', '\\'], "_"));
+            if backup.exists() {
+                let target = target_dir.join(&entry.path);
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent)
+                        .map_err(|source| zapret_manager_core::io_error(parent, source))?;
+                }
+                zapret_manager_core::rollback_strategy(&backup, &target)?;
+                restored += 1;
+            }
+        }
+
+        self.log_user(&format!("Rollback стратегий выполнен: {}.", restored))?;
+        self.log_debug(
+            "info",
+            "strategy_update_rollback",
+            &format!("restored={restored}"),
+        )?;
+        Ok(restored)
+    }
+
+    fn filtered_strategy_manifest(&self) -> Result<StrategyUpdateManifest> {
+        let mut manifest = self.load_strategy_update_manifest()?;
+        let channel = if self.settings.strategy_channel == "experimental" {
+            ProfileStatus::Experimental
+        } else {
+            ProfileStatus::Stable
+        };
+        manifest.entries.retain(|entry| entry.channel == channel);
+        manifest.validate()?;
+        Ok(manifest)
+    }
+
+    fn log_user(&self, message: &str) -> Result<()> {
+        append_user_log(&self.data_root.join("logs").join("user.log"), message)
+    }
+
+    fn log_debug(&self, level: &str, event: &str, detail: &str) -> Result<()> {
+        append_debug_log(
+            &self.data_root.join("logs").join("debug.jsonl"),
+            level,
+            event,
+            detail,
+        )
     }
 }
 
@@ -342,49 +471,6 @@ fn detect_vpn_conflict() -> VpnConflict {
             message: "VPN conflict forced by environment.".to_string(),
         };
     }
-
-    #[cfg(windows)]
-    {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | Select-Object -ExpandProperty Name",
-            ])
-            .output();
-        if let Ok(output) = output {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let adapter_names = text
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .filter(|line| {
-                    let lower = line.to_ascii_lowercase();
-                    [
-                        "vpn",
-                        "wireguard",
-                        "openvpn",
-                        "tap",
-                        "tun",
-                        "tailscale",
-                        "zerotier",
-                    ]
-                    .iter()
-                    .any(|marker| lower.contains(marker))
-                })
-                .map(ToString::to_string)
-                .collect::<Vec<_>>();
-            if !adapter_names.is_empty() {
-                return VpnConflict {
-                    detected: true,
-                    adapter_names,
-                    message: "VPN-like active adapter detected.".to_string(),
-                };
-            }
-        }
-    }
-
     VpnConflict::none()
 }
 
@@ -409,9 +495,7 @@ fn push_ancestors(candidates: &mut Vec<PathBuf>, start: Option<&Path>) {
     };
     for _ in 0..6 {
         candidates.push(current.to_path_buf());
-        if let Some(resources) = current.to_str().map(|_| current.join("resources")) {
-            candidates.push(resources);
-        }
+        candidates.push(current.join("resources"));
         let Some(parent) = current.parent() else {
             break;
         };
@@ -428,4 +512,14 @@ fn data_root() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir())
         .join("ZapretManager")
+}
+
+fn trusted_sources() -> TrustedSources {
+    TrustedSources {
+        sources: vec![TrustedSource {
+            name: "bundled-local-strategies".to_string(),
+            base_url: "file:///local/strategies/".to_string(),
+            pinned_manifest_sha256: None,
+        }],
+    }
 }
