@@ -2,9 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct AppSettings {
     pub autostart: bool,
     pub strategy_channel: String,
+    pub engine_strategy: String,
     pub logs_path: PathBuf,
     pub engine_path: PathBuf,
     pub safety_mode: bool,
@@ -16,6 +18,7 @@ impl Default for AppSettings {
         Self {
             autostart: false,
             strategy_channel: "stable".to_string(),
+            engine_strategy: "general".to_string(),
             logs_path: PathBuf::from("logs"),
             engine_path: PathBuf::from("engine/local"),
             safety_mode: true,

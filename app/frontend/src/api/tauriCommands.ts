@@ -47,6 +47,7 @@ export interface StrategyUpdateStatus {
 export interface AppSettings {
   autostart: boolean;
   strategy_channel: string;
+  engine_strategy: string;
   logs_path: string;
   engine_path: string;
   safety_mode: boolean;
@@ -81,6 +82,7 @@ let mockStatus: AppStatus = {
 let mockSettings: AppSettings = {
   autostart: false,
   strategy_channel: "stable",
+  engine_strategy: "general",
   logs_path: "logs",
   engine_path: "engine/local",
   safety_mode: true,
@@ -123,12 +125,12 @@ const addLog = (message: string) => {
 
 function mockDiagnostics(): DiagnosticReport {
   const items: DiagnosticItem[] = [
-    diag("admin", "Права администратора", "warning", "Запустите приложение от имени администратора для реального управления службой."),
+    diag("admin", "Права администратора", "warning", "Запустите приложение от имени администратора для запуска WinDivert."),
     diag("service_installed", "Служба установлена", "ok", "Действий не требуется."),
     diag("service_running", "Служба запущена", "ok", "Действий не требуется."),
-    diag("engine_found", "Engine найден", "warning", "Подключите проверенный engine manifest."),
-    diag("engine_hash", "Engine hash совпадает", "skipped", "Будет проверяться после подключения engine."),
-    diag("driver", "Драйвер доступен", "skipped", "В mock-режиме драйвер не используется."),
+    diag("engine_found", "Engine найден", "ok", "Engine manifest найден."),
+    diag("engine_hash", "Engine hash совпадает", "ok", "Manifest/hash проверены."),
+    diag("driver", "Драйвер доступен", "warning", "WinDivert проверяется при запуске от администратора."),
     diag("profile_valid", "Профили валидны", "ok", "Действий не требуется."),
     diag("strategy_valid", "Стратегии валидны", "ok", "Действий не требуется."),
     diag("dns", "DNS работает", "ok", "Действий не требуется."),
@@ -226,9 +228,9 @@ export const tauriCommands = {
       channel: "stable",
       message: "Rollback стратегий выполнен из последнего backup.",
     })),
-  repairDriver: () => call<string>("repair_driver", undefined, () => "Mock: драйвер не используется."),
-  repairService: () => call<string>("repair_service", undefined, () => "Mock: служба проверена."),
-  restartEngine: () => call<string>("restart_engine", undefined, () => "Mock: engine перезапущен."),
+  repairDriver: () => call<string>("repair_driver", undefined, () => "WinDivert проверяется при запуске engine."),
+  repairService: () => call<string>("repair_service", undefined, () => "Локальный backend доступен."),
+  restartEngine: () => call<string>("restart_engine", undefined, () => "Остановите и снова включите режим."),
   emergencyDisable: () => call<AppStatus>("emergency_disable", undefined, () => tauriCommands.disableAll()),
   createSnapshot: () => call<unknown>("create_snapshot", undefined, () => ({ timestamp: now(), active_profiles: mockStatus.enabled_profiles })),
   restoreSnapshot: () => call<AppStatus>("restore_snapshot", undefined, () => tauriCommands.disableAll()),

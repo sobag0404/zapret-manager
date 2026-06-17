@@ -181,6 +181,20 @@ export const appActions = {
     const saved = await runAction("settings", () => tauriCommands.saveSettings(settings));
     if (saved) setState({ settings: saved });
   },
+  setEngineStrategy: async (engine_strategy: string) => {
+    const nextSettings = { ...(state.settings ?? {
+      autostart: false,
+      strategy_channel: "stable",
+      engine_strategy: "general",
+      logs_path: "logs",
+      engine_path: "engine/local",
+      safety_mode: true,
+      allow_vpn_conflict: true,
+    }), engine_strategy };
+    setState({ settings: nextSettings, error: null });
+    const saved = await runAction("settings", () => tauriCommands.saveSettings(nextSettings));
+    if (saved) setState({ settings: saved });
+  },
 };
 
 export function useAppStore(): AppState {

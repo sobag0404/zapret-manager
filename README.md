@@ -63,6 +63,18 @@ The installed application requests administrator privileges because WinDivert
 cannot start without UAC. Closing the window hides the app to tray; choosing
 `Закрыть` in the tray menu stops the engine first.
 
+Available engine strategies in the UI:
+
+- `General`
+- `ALT`
+- `ALT2`
+- `ALT3`
+- `Simple Fake`
+- `Fake TLS Auto`
+
+If one strategy does not work for the current provider, turn the mode off,
+select another strategy on the main screen, and turn it on again.
+
 ## CI
 
 The GitHub Actions workflows are under `.github/workflows/`:

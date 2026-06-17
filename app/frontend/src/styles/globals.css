@@ -348,6 +348,45 @@ main {
   min-width: 0;
 }
 
+.strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.strategy-option {
+  display: grid;
+  gap: 5px;
+  min-height: 72px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafb;
+  color: var(--text);
+  text-align: left;
+}
+
+.strategy-option.is-selected {
+  border-color: rgba(22, 117, 111, 0.55);
+  background: #edf8f6;
+}
+
+.strategy-option strong,
+.strategy-option small {
+  display: block;
+}
+
+.strategy-option small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.hint-line {
+  margin: 12px 0 0;
+  color: var(--muted);
+}
+
 .mode-option {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

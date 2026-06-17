@@ -49,6 +49,17 @@ export function Settings() {
           </select>
         </label>
         <label>
+          Engine strategy
+          <select value={draft.engine_strategy} onChange={(event) => setDraft({ ...draft, engine_strategy: event.target.value })}>
+            <option value="general">General</option>
+            <option value="alt">ALT</option>
+            <option value="alt2">ALT2</option>
+            <option value="alt3">ALT3</option>
+            <option value="simple_fake">Simple Fake</option>
+            <option value="fake_tls_auto">Fake TLS Auto</option>
+          </select>
+        </label>
+        <label>
           Путь к логам
           <input value={draft.logs_path} onChange={(event) => setDraft({ ...draft, logs_path: event.target.value })} />
         </label>

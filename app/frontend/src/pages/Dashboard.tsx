@@ -3,11 +3,21 @@ import { MainToggle } from "../components/MainToggle";
 import { StatusCard } from "../components/StatusCard";
 import { appActions, useAppStore } from "../store/appStore";
 
+const engineStrategies = [
+  { id: "general", name: "General", detail: "Основная Flowseal strategy" },
+  { id: "alt", name: "ALT", detail: "Fake + fakedsplit" },
+  { id: "alt2", name: "ALT2", detail: "Multisplit seqovl 652" },
+  { id: "alt3", name: "ALT3", detail: "HostFakeSplit" },
+  { id: "simple_fake", name: "Simple Fake", detail: "Fake TLS без split" },
+  { id: "fake_tls_auto", name: "Fake TLS Auto", detail: "Auto fake TLS" },
+];
+
 export function Dashboard() {
-  const { status, profiles, selectedProfiles, diagnostics, loading } = useAppStore();
+  const { status, profiles, selectedProfiles, diagnostics, loading, settings } = useAppStore();
   const errors = diagnostics.filter((item) => item.status === "error").length;
   const warnings = diagnostics.filter((item) => item.status === "warning").length;
   const engineIssue = diagnostics.find((item) => item.id === "engine_found" && item.status !== "ok");
+  const running = status?.status === "running";
 
   return (
     <div className="page-stack">
@@ -47,6 +57,30 @@ export function Dashboard() {
           </div>
         )}
       </section>
+      <section className="dashboard-section">
+        <div className="section-heading">
+          <span className="eyebrow">Стратегия engine</span>
+          <h2>Если не заработало, переключите вариант и включите снова</h2>
+        </div>
+        <div className="strategy-grid">
+          {engineStrategies.map((strategy) => {
+            const selected = (settings?.engine_strategy ?? "general") === strategy.id;
+            return (
+              <button
+                className={`strategy-option ${selected ? "is-selected" : ""}`}
+                disabled={running || loading.settings}
+                key={strategy.id}
+                onClick={() => appActions.setEngineStrategy(strategy.id)}
+                type="button"
+              >
+                <strong>{strategy.name}</strong>
+                <small>{strategy.detail}</small>
+              </button>
+            );
+          })}
+        </div>
+        {running && <p className="hint-line">Чтобы сменить стратегию, сначала нажмите “Выключить”.</p>}
+      </section>
       <section className="status-grid">
         <StatusCard
           icon={ShieldCheck}
@@ -59,7 +93,7 @@ export function Dashboard() {
         <StatusCard
           icon={Activity}
           label="Engine"
-          value={engineIssue ? "Не подключён" : "Готов"}
+          value={engineIssue ? "Ошибка" : settings?.engine_strategy ?? "general"}
           detail={engineIssue?.action ?? engineIssue?.problem ?? "Manifest и hash проверены"}
           tone={engineIssue ? "error" : "ok"}
         />

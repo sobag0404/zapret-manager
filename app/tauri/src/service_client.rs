@@ -38,12 +38,13 @@ struct EngineProcess {
 
 impl ServiceClient {
     pub fn new(content_root: PathBuf, data_root: PathBuf) -> Self {
+        let settings = load_settings(&data_root).unwrap_or_default();
         Self {
             content_root,
             data_root,
             enabled_profiles: Vec::new(),
             enabled: false,
-            settings: AppSettings::default(),
+            settings,
             engine: None,
         }
     }
@@ -428,13 +429,15 @@ impl ServiceClient {
 
     pub fn save_settings(&mut self, settings: AppSettings) -> Result<AppSettings> {
         self.settings = settings;
+        self.write_settings()?;
         self.log_user("Настройки сохранены.")?;
         self.log_debug(
             "info",
             "settings_saved",
             &format!(
-                "strategy_channel={}, safety_mode={}, allow_vpn_conflict={}",
+                "strategy_channel={}, engine_strategy={}, safety_mode={}, allow_vpn_conflict={}",
                 self.settings.strategy_channel,
+                self.settings.engine_strategy,
                 self.settings.safety_mode,
                 self.settings.allow_vpn_conflict
             ),
@@ -599,11 +602,17 @@ impl ServiceClient {
     fn start_engine(&self, runtime_dir: &Path) -> Result<Child> {
         let bin = runtime_dir.join("bin");
         let exe = bin.join("winws.exe");
-        let args = build_winws_args(runtime_dir);
+        let args = build_winws_args(runtime_dir, &self.settings.engine_strategy);
+        let strategy = normalized_engine_strategy(&self.settings.engine_strategy);
         self.log_debug(
             "info",
             "engine_start_command",
-            &format!("exe={}, args_count={}", exe.display(), args.len()),
+            &format!(
+                "exe={}, strategy={}, args_count={}",
+                exe.display(),
+                strategy,
+                args.len()
+            ),
         )?;
 
         let mut command = Command::new(&exe);
@@ -630,6 +639,17 @@ impl ServiceClient {
         }
         Ok(child)
     }
+
+    fn write_settings(&self) -> Result<()> {
+        let path = self.data_root.join("settings.json");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|source| zapret_manager_core::io_error(parent, source))?;
+        }
+        let json = serde_json::to_string_pretty(&self.settings)
+            .map_err(|source| zapret_manager_core::json_error(&path, source))?;
+        fs::write(&path, json).map_err(|source| zapret_manager_core::io_error(path, source))
+    }
 }
 
 struct EngineReadiness {
@@ -638,12 +658,13 @@ struct EngineReadiness {
     message: String,
 }
 
-fn build_winws_args(runtime_dir: &Path) -> Vec<String> {
+fn build_winws_args(runtime_dir: &Path, strategy: &str) -> Vec<String> {
     let bin = runtime_dir.join("bin");
     let lists = runtime_dir.join("lists");
     let p = |path: PathBuf| path.to_string_lossy().to_string();
+    let strategy = normalized_engine_strategy(strategy);
 
-    vec![
+    let mut args = vec![
         "--wf-tcp=80,443,2053,2083,2087,2096,8443".to_string(),
         "--wf-udp=443,19294-19344,50000-50100".to_string(),
         "--filter-udp=443".to_string(),
@@ -654,7 +675,7 @@ fn build_winws_args(runtime_dir: &Path) -> Vec<String> {
         format!("--ipset-exclude={}", p(lists.join("ipset-exclude.txt"))),
         format!("--ipset-exclude={}", p(lists.join("ipset-exclude-user.txt"))),
         "--dpi-desync=fake".to_string(),
-        "--dpi-desync-repeats=6".to_string(),
+        format!("--dpi-desync-repeats={}", if strategy == "fake_tls_auto" { 11 } else { 6 }),
         format!(
             "--dpi-desync-fake-quic={}",
             p(bin.join("quic_initial_www_google_com.bin"))
@@ -675,24 +696,16 @@ fn build_winws_args(runtime_dir: &Path) -> Vec<String> {
         "--new".to_string(),
         "--filter-tcp=2053,2083,2087,2096,8443".to_string(),
         "--hostlist-domains=discord.media".to_string(),
-        "--dpi-desync=multisplit".to_string(),
-        "--dpi-desync-split-seqovl=681".to_string(),
-        "--dpi-desync-split-pos=1".to_string(),
-        format!(
-            "--dpi-desync-split-seqovl-pattern={}",
-            p(bin.join("tls_clienthello_www_google_com.bin"))
-        ),
+    ];
+    push_tls_strategy_args(&mut args, &bin, "discord_media", &strategy);
+    args.extend([
         "--new".to_string(),
         "--filter-tcp=443".to_string(),
         format!("--hostlist={}", p(lists.join("list-google.txt"))),
         "--ip-id=zero".to_string(),
-        "--dpi-desync=multisplit".to_string(),
-        "--dpi-desync-split-seqovl=681".to_string(),
-        "--dpi-desync-split-pos=1".to_string(),
-        format!(
-            "--dpi-desync-split-seqovl-pattern={}",
-            p(bin.join("tls_clienthello_www_google_com.bin"))
-        ),
+    ]);
+    push_tls_strategy_args(&mut args, &bin, "google", &strategy);
+    args.extend([
         "--new".to_string(),
         "--filter-tcp=80,443".to_string(),
         format!("--hostlist={}", p(lists.join("list-general.txt"))),
@@ -701,13 +714,9 @@ fn build_winws_args(runtime_dir: &Path) -> Vec<String> {
         format!("--hostlist-exclude={}", p(lists.join("list-exclude-user.txt"))),
         format!("--ipset-exclude={}", p(lists.join("ipset-exclude.txt"))),
         format!("--ipset-exclude={}", p(lists.join("ipset-exclude-user.txt"))),
-        "--dpi-desync=multisplit".to_string(),
-        "--dpi-desync-split-seqovl=568".to_string(),
-        "--dpi-desync-split-pos=1".to_string(),
-        format!(
-            "--dpi-desync-split-seqovl-pattern={}",
-            p(bin.join("tls_clienthello_4pda_to.bin"))
-        ),
+    ]);
+    push_tls_strategy_args(&mut args, &bin, "general", &strategy);
+    args.extend([
         "--new".to_string(),
         "--filter-udp=443".to_string(),
         format!("--ipset={}", p(lists.join("ipset-all.txt"))),
@@ -716,7 +725,7 @@ fn build_winws_args(runtime_dir: &Path) -> Vec<String> {
         format!("--ipset-exclude={}", p(lists.join("ipset-exclude.txt"))),
         format!("--ipset-exclude={}", p(lists.join("ipset-exclude-user.txt"))),
         "--dpi-desync=fake".to_string(),
-        "--dpi-desync-repeats=6".to_string(),
+        format!("--dpi-desync-repeats={}", if strategy == "fake_tls_auto" { 11 } else { 6 }),
         format!(
             "--dpi-desync-fake-quic={}",
             p(bin.join("quic_initial_www_google_com.bin"))
@@ -728,14 +737,139 @@ fn build_winws_args(runtime_dir: &Path) -> Vec<String> {
         format!("--hostlist-exclude={}", p(lists.join("list-exclude-user.txt"))),
         format!("--ipset-exclude={}", p(lists.join("ipset-exclude.txt"))),
         format!("--ipset-exclude={}", p(lists.join("ipset-exclude-user.txt"))),
-        "--dpi-desync=multisplit".to_string(),
-        "--dpi-desync-split-seqovl=568".to_string(),
-        "--dpi-desync-split-pos=1".to_string(),
+    ]);
+    push_tls_strategy_args(&mut args, &bin, "ipset", &strategy);
+    args
+}
+
+fn push_tls_strategy_args(args: &mut Vec<String>, bin: &Path, scope: &str, strategy: &str) {
+    let p = |path: PathBuf| path.to_string_lossy().to_string();
+    match strategy {
+        "alt" => {
+            args.extend([
+                "--dpi-desync=fake,fakedsplit".to_string(),
+                "--dpi-desync-repeats=6".to_string(),
+                "--dpi-desync-fooling=ts".to_string(),
+                "--dpi-desync-fakedsplit-pattern=0x00".to_string(),
+            ]);
+            if matches!(scope, "discord_media" | "google") {
+                args.push(format!(
+                    "--dpi-desync-fake-tls={}",
+                    p(bin.join("tls_clienthello_www_google_com.bin"))
+                ));
+            } else {
+                push_simple_fake_payloads(args, bin);
+            }
+        }
+        "alt2" => {
+            args.extend([
+                "--dpi-desync=multisplit".to_string(),
+                "--dpi-desync-split-seqovl=652".to_string(),
+                "--dpi-desync-split-pos=2".to_string(),
+                format!(
+                    "--dpi-desync-split-seqovl-pattern={}",
+                    p(bin.join("tls_clienthello_www_google_com.bin"))
+                ),
+            ]);
+        }
+        "alt3" => {
+            args.extend([
+                "--dpi-desync=fake,hostfakesplit".to_string(),
+                format!(
+                    "--dpi-desync-fake-tls-mod=rnd,dupsid,sni={}",
+                    if matches!(scope, "discord_media" | "google") {
+                        "www.google.com"
+                    } else {
+                        "ya.ru"
+                    }
+                ),
+                format!(
+                    "--dpi-desync-hostfakesplit-mod=host={},altorder=1",
+                    if matches!(scope, "discord_media" | "google") {
+                        "www.google.com"
+                    } else {
+                        "ya.ru"
+                    }
+                ),
+                "--dpi-desync-fooling=ts".to_string(),
+            ]);
+            if !matches!(scope, "discord_media" | "google") {
+                args.push(format!(
+                    "--dpi-desync-fake-http={}",
+                    p(bin.join("tls_clienthello_max_ru.bin"))
+                ));
+            }
+        }
+        "simple_fake" => {
+            args.extend([
+                "--dpi-desync=fake".to_string(),
+                "--dpi-desync-repeats=6".to_string(),
+                "--dpi-desync-fooling=ts".to_string(),
+            ]);
+            if matches!(scope, "discord_media" | "google") {
+                args.push(format!(
+                    "--dpi-desync-fake-tls={}",
+                    p(bin.join("tls_clienthello_www_google_com.bin"))
+                ));
+            } else {
+                push_simple_fake_payloads(args, bin);
+            }
+        }
+        "fake_tls_auto" => {
+            args.extend([
+                "--dpi-desync=fake,multidisorder".to_string(),
+                "--dpi-desync-split-pos=1,midsld".to_string(),
+                "--dpi-desync-repeats=11".to_string(),
+                "--dpi-desync-fooling=badseq".to_string(),
+                "--dpi-desync-fake-tls=0x00000000".to_string(),
+                "--dpi-desync-fake-tls=!".to_string(),
+                "--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com".to_string(),
+            ]);
+            if !matches!(scope, "discord_media" | "google") {
+                args.push(format!(
+                    "--dpi-desync-fake-http={}",
+                    p(bin.join("tls_clienthello_max_ru.bin"))
+                ));
+            }
+        }
+        _ => {
+            let (seq, pos, pattern) = match scope {
+                "discord_media" | "google" => (681, 1, "tls_clienthello_www_google_com.bin"),
+                _ => (568, 1, "tls_clienthello_4pda_to.bin"),
+            };
+            args.extend([
+                "--dpi-desync=multisplit".to_string(),
+                format!("--dpi-desync-split-seqovl={seq}"),
+                format!("--dpi-desync-split-pos={pos}"),
+                format!(
+                    "--dpi-desync-split-seqovl-pattern={}",
+                    p(bin.join(pattern))
+                ),
+            ]);
+        }
+    }
+}
+
+fn push_simple_fake_payloads(args: &mut Vec<String>, bin: &Path) {
+    let p = |path: PathBuf| path.to_string_lossy().to_string();
+    args.extend([
+        format!("--dpi-desync-fake-tls={}", p(bin.join("stun.bin"))),
         format!(
-            "--dpi-desync-split-seqovl-pattern={}",
-            p(bin.join("tls_clienthello_4pda_to.bin"))
+            "--dpi-desync-fake-tls={}",
+            p(bin.join("tls_clienthello_www_google_com.bin"))
         ),
-    ]
+        format!(
+            "--dpi-desync-fake-http={}",
+            p(bin.join("tls_clienthello_max_ru.bin"))
+        ),
+    ]);
+}
+
+fn normalized_engine_strategy(strategy: &str) -> String {
+    match strategy {
+        "alt" | "alt2" | "alt3" | "simple_fake" | "fake_tls_auto" => strategy.to_string(),
+        _ => "general".to_string(),
+    }
 }
 
 fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {
@@ -836,6 +970,16 @@ fn data_root() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir())
         .join("ZapretManager")
+}
+
+fn load_settings(data_root: &Path) -> Result<AppSettings> {
+    let path = data_root.join("settings.json");
+    if !path.exists() {
+        return Ok(AppSettings::default());
+    }
+    let text = fs::read_to_string(&path)
+        .map_err(|source| zapret_manager_core::io_error(&path, source))?;
+    serde_json::from_str(&text).map_err(|source| zapret_manager_core::json_error(path, source))
 }
 
 fn trusted_sources() -> TrustedSources {

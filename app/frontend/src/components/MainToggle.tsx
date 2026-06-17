@@ -16,7 +16,7 @@ export function MainToggle({ status, loading, onToggle }: MainToggleProps) {
       </span>
       <span>
         <strong>{loading ? "Выполняется" : running ? "Выключить" : "Включить"}</strong>
-        <small>{running ? "Локальный mock engine работает" : "Режим отключён"}</small>
+        <small>{running ? "Локальный engine работает" : "Режим отключён"}</small>
       </span>
     </button>
   );
