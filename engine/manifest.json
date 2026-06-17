@@ -1,6 +1,97 @@
 {
-  "schema_version": "1",
-  "engine_version": "mock-0.1.0",
-  "source_url": "file:///local/mock-engine",
-  "files": []
+    "schema_version":  "1",
+    "engine_version":  "flowseal-1.9.9c",
+    "source_url":  "https://github.com/Flowseal/zapret-discord-youtube/releases/tag/1.9.9c",
+    "files":  [
+                  {
+                      "relative_path":  "bin/cygwin1.dll",
+                      "sha256":  "103104a52e5293ce418944725df19e2bf81ad9269b9a120d71d39028e821499b",
+                      "executable":  true
+                  },
+                  {
+                      "relative_path":  "bin/quic_initial_dbankcloud_ru.bin",
+                      "sha256":  "f7a1c1cffc8f65bd47412b7ca5588653d21eec916bb79203c9914890a62874df",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "bin/quic_initial_www_google_com.bin",
+                      "sha256":  "f4589c57749f956bb30538197a521d7005f8b0a8723b4707e72405e51ddac50a",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "bin/stun.bin",
+                      "sha256":  "9cd5469309780ca56c0bd97266524a48c7ee529d02c3179cfecb20b260a59641",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "bin/tls_clienthello_4pda_to.bin",
+                      "sha256":  "eefeaf09dde8d69b1f176212541f63c68b314a33a335eced99a8a29f17254da8",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "bin/tls_clienthello_max_ru.bin",
+                      "sha256":  "4ee0870abe0a0128600b0095189987ba1d210dae8bf963bc725aff49cf922624",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "bin/tls_clienthello_www_google_com.bin",
+                      "sha256":  "936c2bee4cfb80aa3c426b2dcbcc834b3fbcd1adb17172959dc569c73a14275c",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "bin/WinDivert.dll",
+                      "sha256":  "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2",
+                      "executable":  true
+                  },
+                  {
+                      "relative_path":  "bin/WinDivert64.sys",
+                      "sha256":  "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2",
+                      "executable":  true
+                  },
+                  {
+                      "relative_path":  "bin/winws.exe",
+                      "sha256":  "affb4f69d2ea302a7abccd5325d81826e140ddae014f1e070bc4a6c0dd555188",
+                      "executable":  true
+                  },
+                  {
+                      "relative_path":  "lists/ipset-all.txt",
+                      "sha256":  "19123a22bf1108815c07bda3cda8df282b30bd63e4939949928969c0fd195873",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "lists/ipset-exclude.txt",
+                      "sha256":  "96c03954012765ce4ab03b9c30f29ab1ca1b698c6752224d03828e6d182eb0fc",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "lists/ipset-exclude-user.txt",
+                      "sha256":  "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "lists/list-exclude.txt",
+                      "sha256":  "fee10780709c1956046e2f300af46cb9814c23a14001dee85fe5149e1f286f5f",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "lists/list-exclude-user.txt",
+                      "sha256":  "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "lists/list-general.txt",
+                      "sha256":  "fa32857695c52544c082df680807564d24c360be6eb7553f8d5fac6591312f6c",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "lists/list-general-user.txt",
+                      "sha256":  "45c000b6afc65805f6ab2b757498f7f5626252f8e9f5fa807b8c3330d603eaa7",
+                      "executable":  false
+                  },
+                  {
+                      "relative_path":  "lists/list-google.txt",
+                      "sha256":  "1e59f9d487f7bce12091c838151713d0a8d31c3aae20afefebb38206f2cd8232",
+                      "executable":  false
+                  }
+              ]
 }

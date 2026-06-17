@@ -1,11 +1,12 @@
 # Zapret Manager
 
-Zapret Manager is a local Windows desktop application for managing safe,
-reversible `zapret` engine profiles through a GUI and a local Windows service.
+Zapret Manager is a local Windows desktop application for managing verified
+`zapret`/`winws` engine profiles through a GUI.
 
 It is not a VPN, does not use an external server, does not route user traffic
-through third-party servers, and does not collect telemetry. The initial version
-ships with a mock engine adapter and safe strategy/profile scaffolding only.
+through third-party servers, and does not collect telemetry. The Windows build
+can bundle a verified Flowseal `zapret-discord-youtube` engine package and
+starts it only after manifest and SHA-256 checks pass.
 
 ## Documentation
 
@@ -58,6 +59,10 @@ cargo tauri build
 The installer artifact is produced by Tauri/NSIS under
 `target/release/bundle/nsis/`.
 
+The installed application requests administrator privileges because WinDivert
+cannot start without UAC. Closing the window hides the app to tray; choosing
+`Закрыть` in the tray menu stops the engine first.
+
 ## CI
 
 The GitHub Actions workflows are under `.github/workflows/`:
@@ -71,7 +76,7 @@ The GitHub Actions workflows are under `.github/workflows/`:
 ## Safety Principles
 
 - Do not apply engine updates without a policy decision and a rollback path.
-- Do not write irreversible service, network, or firewall changes.
+- Do not write irreversible service, network, DNS, proxy, or firewall changes.
 - Do not collect packet contents, credentials, tokens, or unrelated browsing
   data in diagnostics.
 - Prefer explicit user consent for privileged operations.

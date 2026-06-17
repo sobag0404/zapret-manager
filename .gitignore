@@ -53,6 +53,7 @@ Cargo.lock.orig
 *.msix
 *.appx
 *.exe
+!engine/local/bin/winws.exe
 *.pdb
 *.zip
 dist/

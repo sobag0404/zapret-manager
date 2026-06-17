@@ -1,6 +1,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use zapret_manager_core::{
     append_debug_log, append_user_log, AppSettings, AppStatus, DiagnosticItem, DiagnosticReport,
     DiagnosticStatus, EngineManifest, Profile, ProfileStatus, Result, RuntimeStatus,
@@ -8,19 +13,27 @@ use zapret_manager_core::{
     ZapretError,
 };
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 static STATE: OnceLock<Mutex<ServiceClient>> = OnceLock::new();
 
 pub fn client() -> &'static Mutex<ServiceClient> {
     STATE.get_or_init(|| Mutex::new(ServiceClient::new(project_root(), data_root())))
 }
 
-#[derive(Debug)]
 pub struct ServiceClient {
     content_root: PathBuf,
     data_root: PathBuf,
     enabled_profiles: Vec<String>,
     enabled: bool,
     settings: AppSettings,
+    engine: Option<EngineProcess>,
+}
+
+struct EngineProcess {
+    child: Child,
+    runtime_dir: PathBuf,
 }
 
 impl ServiceClient {
@@ -31,6 +44,7 @@ impl ServiceClient {
             enabled_profiles: Vec::new(),
             enabled: false,
             settings: AppSettings::default(),
+            engine: None,
         }
     }
 
@@ -93,9 +107,21 @@ impl ServiceClient {
             ));
         }
 
+        if self.enabled {
+            self.disable_all()?;
+        }
+
+        if !is_elevated() {
+            self.log_user("Включение остановлено: приложение запущено без прав администратора.")?;
+            return Err(ZapretError::Operation(
+                "Запустите Zapret Manager от имени администратора. WinDivert не стартует без UAC."
+                    .to_string(),
+            ));
+        }
+
         let engine = self.engine_readiness();
         if !engine.ready {
-            self.log_user("Включение не выполнено: реальный engine не подключён.")?;
+            self.log_user("Включение не выполнено: реальный engine не подключён или hash не совпал.")?;
             self.log_debug("warn", "enable_blocked_engine_missing", &engine.message)?;
             return Err(ZapretError::Operation(engine.message));
         }
@@ -115,11 +141,6 @@ impl ServiceClient {
 
         if self.settings.safety_mode && !self.settings.allow_vpn_conflict && vpn.detected {
             self.log_user("Включение остановлено: активен VPN и выключена совместимость с VPN.")?;
-            self.log_debug(
-                "warn",
-                "vpn_conflict_blocked_enable",
-                &format!("active adapters: {}", vpn.adapter_names.join(", ")),
-            )?;
             return Err(ZapretError::Operation(format!(
                 "Обнаружен активный VPN: {}. Включение заблокировано режимом безопасности.",
                 vpn.adapter_names.join(", ")
@@ -127,7 +148,7 @@ impl ServiceClient {
         }
 
         self.log_user("Создаётся snapshot перед включением.")?;
-        let snapshot = SystemSnapshot::mock(profiles.clone(), vec!["strategies:1.0.0".to_string()]);
+        let snapshot = SystemSnapshot::mock(profiles.clone(), vec![engine.version.clone()]);
         let snapshot_path = snapshot.save(&self.data_root.join("snapshots"))?;
         self.log_debug(
             "info",
@@ -135,28 +156,58 @@ impl ServiceClient {
             &format!("path={}", snapshot_path.display()),
         )?;
 
+        let runtime_dir = self.prepare_runtime_engine()?;
+        let child = self.start_engine(&runtime_dir)?;
+        let pid = child.id();
+        self.engine = Some(EngineProcess { child, runtime_dir });
         self.enabled_profiles = profiles.clone();
         self.enabled = true;
-        self.log_user(&format!("Режим включён: {}.", profiles.join(", ")))?;
-        self.log_debug("info", "engine_ready", &engine.message)?;
+
+        self.log_user(&format!(
+            "Режим включён: {}. Engine PID: {}.",
+            profiles.join(", "),
+            pid
+        ))?;
+        self.log_debug("info", "engine_started", &format!("pid={pid}"))?;
         self.status()
     }
 
     pub fn disable_all(&mut self) -> Result<AppStatus> {
-        self.log_user("Выключение режима: остановка mock engine.")?;
+        self.log_user("Выключение режима: остановка engine.")?;
         self.log_debug(
             "info",
             "disable_requested",
             &format!("active_profiles={}", self.enabled_profiles.join(",")),
         )?;
+
+        if let Some(mut engine) = self.engine.take() {
+            let pid = engine.child.id();
+            match engine.child.try_wait() {
+                Ok(Some(status)) => {
+                    self.log_debug(
+                        "info",
+                        "engine_already_exited",
+                        &format!("pid={pid}, status={status}"),
+                    )?;
+                }
+                Ok(None) => {
+                    engine
+                        .child
+                        .kill()
+                        .map_err(|source| zapret_manager_core::io_error(&engine.runtime_dir, source))?;
+                    let _ = engine.child.wait();
+                    self.log_debug("info", "engine_killed", &format!("pid={pid}"))?;
+                }
+                Err(err) => {
+                    self.log_debug("warn", "engine_stop_check_failed", &err.to_string())?;
+                }
+            }
+        }
+
         self.enabled = false;
         self.enabled_profiles.clear();
-        self.log_user("Система восстановлена. Временные правила отсутствуют.")?;
-        self.log_debug(
-            "info",
-            "safe_revert_completed",
-            "mock safe revert completed; no external engine processes were started",
-        )?;
+        self.log_user("Система восстановлена. Временные правила удалены.")?;
+        self.log_debug("info", "safe_revert_completed", "engine process stopped")?;
         self.status()
     }
 
@@ -164,24 +215,33 @@ impl ServiceClient {
         let vpn = detect_vpn_conflict();
         let profiles_found = !self.list_profiles().unwrap_or_default().is_empty();
         let engine = self.engine_readiness();
+        let admin = is_elevated();
         DiagnosticReport::aggregate(vec![
             diag(
                 "admin",
                 "Права администратора",
-                DiagnosticStatus::Warning,
-                "Для реальной службы потребуется запуск от имени администратора.",
+                if admin {
+                    DiagnosticStatus::Ok
+                } else {
+                    DiagnosticStatus::Warning
+                },
+                if admin {
+                    "Приложение запущено с правами администратора."
+                } else {
+                    "Для запуска WinDivert откройте приложение от имени администратора."
+                },
             ),
             diag(
                 "service_installed",
                 "Служба установлена",
                 DiagnosticStatus::Ok,
-                "Mock-служба доступна.",
+                "Локальный backend доступен. Engine запускается только по кнопке Включить.",
             ),
             diag(
                 "service_running",
                 "Служба запущена",
                 DiagnosticStatus::Ok,
-                "Mock-служба отвечает.",
+                "Локальный backend отвечает.",
             ),
             diag(
                 "engine_found",
@@ -204,14 +264,18 @@ impl ServiceClient {
                 if engine.ready {
                     "Engine manifest и hash проверены."
                 } else {
-                    "Проверка будет активна после подключения engine manifest с файлами."
+                    "Проверка hash невозможна, пока engine не подключён корректно."
                 },
             ),
             diag(
                 "driver",
                 "Драйвер доступен",
-                DiagnosticStatus::Skipped,
-                "В mock-режиме драйвер не используется.",
+                if engine.ready {
+                    DiagnosticStatus::Warning
+                } else {
+                    DiagnosticStatus::Skipped
+                },
+                "WinDivert проверяется при запуске engine. Антивирус может потребовать исключение.",
             ),
             diag(
                 "profile_valid",
@@ -237,31 +301,43 @@ impl ServiceClient {
                 "dns",
                 "DNS работает",
                 DiagnosticStatus::Ok,
-                "DNS не менялся приложением.",
+                "DNS не меняется приложением. Для браузера рекомендуется Secure DNS.",
             ),
             diag(
                 "internet",
                 "Интернет доступен",
                 DiagnosticStatus::Ok,
-                "Высокоуровневая mock-проверка успешна.",
+                "Базовая проверка доступности сети пройдёт после включения.",
             ),
             diag(
                 "discord",
                 "Discord доступен",
-                DiagnosticStatus::Ok,
-                "Mock-проверка Discord успешна.",
+                if self.enabled {
+                    DiagnosticStatus::Ok
+                } else {
+                    DiagnosticStatus::Skipped
+                },
+                "После включения проверьте Discord в приложении и браузере.",
             ),
             diag(
                 "youtube",
                 "YouTube доступен",
-                DiagnosticStatus::Ok,
-                "Mock-проверка YouTube успешна.",
+                if self.enabled {
+                    DiagnosticStatus::Ok
+                } else {
+                    DiagnosticStatus::Skipped
+                },
+                "После включения проверьте YouTube в браузере.",
             ),
             diag(
                 "telegram",
                 "Telegram доступен",
-                DiagnosticStatus::Ok,
-                "Mock-проверка Telegram успешна.",
+                if self.enabled {
+                    DiagnosticStatus::Warning
+                } else {
+                    DiagnosticStatus::Skipped
+                },
+                "Telegram зависит от провайдера; web.telegram.org добавлен в пользовательский hostlist.",
             ),
             DiagnosticItem {
                 id: "vpn".to_string(),
@@ -277,7 +353,7 @@ impl ServiceClient {
                     None
                 },
                 action: Some(if vpn.detected {
-                    "VPN не трогается. Приложение не меняет DNS/proxy/routes в mock-режиме."
+                    "Приложение не меняет DNS/proxy/routes; если VPN перехватывает весь трафик, эффект engine может быть незаметен."
                         .to_string()
                 } else {
                     "Конфликт с VPN не найден.".to_string()
@@ -287,13 +363,13 @@ impl ServiceClient {
                 "proxy",
                 "Нет конфликта с proxy",
                 DiagnosticStatus::Ok,
-                "Proxy не менялся.",
+                "Proxy не меняется.",
             ),
             diag(
                 "antivirus",
                 "Конфликт с антивирусом",
-                DiagnosticStatus::Skipped,
-                "Антивирус не опрашивается в mock-режиме.",
+                DiagnosticStatus::Warning,
+                "WinDivert иногда определяется как PUA/RiskTool; при блокировке добавьте папку приложения в исключения.",
             ),
             diag(
                 "logs",
@@ -305,13 +381,13 @@ impl ServiceClient {
                 "snapshot",
                 "Snapshot можно создать",
                 DiagnosticStatus::Ok,
-                "Snapshot пишется в локальную папку пользователя.",
+                "Snapshot пишется перед каждым включением.",
             ),
             diag(
                 "revert",
                 "Revert можно выполнить",
                 DiagnosticStatus::Ok,
-                "Mock safe revert доступен.",
+                "Выключение останавливает engine и очищает активное состояние.",
             ),
             diag(
                 "strategy_integrity",
@@ -459,35 +535,32 @@ impl ServiceClient {
     fn engine_readiness(&self) -> EngineReadiness {
         let manifest_path = self.content_root.join("engine").join("manifest.json");
         let engine_dir = self.content_root.join("engine").join("local");
-        let trusted = TrustedSources {
-            sources: vec![TrustedSource {
-                name: "local-engine".to_string(),
-                base_url: "file:///local/mock-engine".to_string(),
-                pinned_manifest_sha256: None,
-            }],
-        };
+        let trusted = engine_trusted_sources();
 
-        let manifest: EngineManifest =
-            match zapret_manager_core::load_engine_manifest(&manifest_path) {
-                Ok(manifest) => manifest,
-                Err(err) => {
-                    return EngineReadiness {
-                        ready: false,
-                        message: format!("Engine manifest не найден или повреждён: {err}."),
-                    }
+        let manifest: EngineManifest = match zapret_manager_core::load_engine_manifest(&manifest_path) {
+            Ok(manifest) => manifest,
+            Err(err) => {
+                return EngineReadiness {
+                    ready: false,
+                    version: "unknown".to_string(),
+                    message: format!("Engine manifest не найден или повреждён: {err}."),
                 }
-            };
+            }
+        };
 
         if manifest.files.is_empty() {
             return EngineReadiness {
                 ready: false,
-                message: "Реальный engine не подключён. Сейчас это безопасный manager-каркас: он не запускает zapret и не меняет доступ к Discord/YouTube.".to_string(),
+                version: manifest.engine_version,
+                message: "Реальный engine не подключён. Доступ к Discord/YouTube/Telegram не изменится."
+                    .to_string(),
             };
         }
 
         if let Err(err) = manifest.validate(&trusted) {
             return EngineReadiness {
                 ready: false,
+                version: manifest.engine_version,
                 message: format!("Engine manifest не прошёл trusted-source проверку: {err}."),
             };
         }
@@ -495,20 +568,190 @@ impl ServiceClient {
         if let Err(err) = manifest.verify_files(&engine_dir, &engine_dir) {
             return EngineReadiness {
                 ready: false,
+                version: manifest.engine_version,
                 message: format!("Engine hash verification failed: {err}."),
             };
         }
 
         EngineReadiness {
             ready: true,
-            message: "Engine manifest найден, trusted-source и hash проверены.".to_string(),
+            version: manifest.engine_version,
+            message: "Engine найден, trusted-source и hash проверены.".to_string(),
         }
+    }
+
+    fn prepare_runtime_engine(&self) -> Result<PathBuf> {
+        let source = self.content_root.join("engine").join("local");
+        let target = self.data_root.join("engine-runtime");
+        if target.exists() {
+            fs::remove_dir_all(&target)
+                .map_err(|source_err| zapret_manager_core::io_error(&target, source_err))?;
+        }
+        copy_dir_recursive(&source, &target)?;
+        self.log_debug(
+            "info",
+            "engine_runtime_prepared",
+            &format!("source={}, target={}", source.display(), target.display()),
+        )?;
+        Ok(target)
+    }
+
+    fn start_engine(&self, runtime_dir: &Path) -> Result<Child> {
+        let bin = runtime_dir.join("bin");
+        let exe = bin.join("winws.exe");
+        let args = build_winws_args(runtime_dir);
+        self.log_debug(
+            "info",
+            "engine_start_command",
+            &format!("exe={}, args_count={}", exe.display(), args.len()),
+        )?;
+
+        let mut command = Command::new(&exe);
+        command
+            .current_dir(&bin)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        command.creation_flags(CREATE_NO_WINDOW);
+
+        let mut child = command
+            .spawn()
+            .map_err(|source| zapret_manager_core::io_error(&exe, source))?;
+        std::thread::sleep(std::time::Duration::from_millis(900));
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|source| zapret_manager_core::io_error(&exe, source))?
+        {
+            return Err(ZapretError::Operation(format!(
+                "Engine сразу завершился со статусом {status}. Проверьте права администратора, WinDivert и антивирус."
+            )));
+        }
+        Ok(child)
     }
 }
 
 struct EngineReadiness {
     ready: bool,
+    version: String,
     message: String,
+}
+
+fn build_winws_args(runtime_dir: &Path) -> Vec<String> {
+    let bin = runtime_dir.join("bin");
+    let lists = runtime_dir.join("lists");
+    let p = |path: PathBuf| path.to_string_lossy().to_string();
+
+    vec![
+        "--wf-tcp=80,443,2053,2083,2087,2096,8443".to_string(),
+        "--wf-udp=443,19294-19344,50000-50100".to_string(),
+        "--filter-udp=443".to_string(),
+        format!("--hostlist={}", p(lists.join("list-general.txt"))),
+        format!("--hostlist={}", p(lists.join("list-general-user.txt"))),
+        format!("--hostlist-exclude={}", p(lists.join("list-exclude.txt"))),
+        format!("--hostlist-exclude={}", p(lists.join("list-exclude-user.txt"))),
+        format!("--ipset-exclude={}", p(lists.join("ipset-exclude.txt"))),
+        format!("--ipset-exclude={}", p(lists.join("ipset-exclude-user.txt"))),
+        "--dpi-desync=fake".to_string(),
+        "--dpi-desync-repeats=6".to_string(),
+        format!(
+            "--dpi-desync-fake-quic={}",
+            p(bin.join("quic_initial_www_google_com.bin"))
+        ),
+        "--new".to_string(),
+        "--filter-udp=19294-19344,50000-50100".to_string(),
+        "--filter-l7=discord,stun".to_string(),
+        "--dpi-desync=fake".to_string(),
+        format!(
+            "--dpi-desync-fake-discord={}",
+            p(bin.join("quic_initial_dbankcloud_ru.bin"))
+        ),
+        format!(
+            "--dpi-desync-fake-stun={}",
+            p(bin.join("quic_initial_dbankcloud_ru.bin"))
+        ),
+        "--dpi-desync-repeats=6".to_string(),
+        "--new".to_string(),
+        "--filter-tcp=2053,2083,2087,2096,8443".to_string(),
+        "--hostlist-domains=discord.media".to_string(),
+        "--dpi-desync=multisplit".to_string(),
+        "--dpi-desync-split-seqovl=681".to_string(),
+        "--dpi-desync-split-pos=1".to_string(),
+        format!(
+            "--dpi-desync-split-seqovl-pattern={}",
+            p(bin.join("tls_clienthello_www_google_com.bin"))
+        ),
+        "--new".to_string(),
+        "--filter-tcp=443".to_string(),
+        format!("--hostlist={}", p(lists.join("list-google.txt"))),
+        "--ip-id=zero".to_string(),
+        "--dpi-desync=multisplit".to_string(),
+        "--dpi-desync-split-seqovl=681".to_string(),
+        "--dpi-desync-split-pos=1".to_string(),
+        format!(
+            "--dpi-desync-split-seqovl-pattern={}",
+            p(bin.join("tls_clienthello_www_google_com.bin"))
+        ),
+        "--new".to_string(),
+        "--filter-tcp=80,443".to_string(),
+        format!("--hostlist={}", p(lists.join("list-general.txt"))),
+        format!("--hostlist={}", p(lists.join("list-general-user.txt"))),
+        format!("--hostlist-exclude={}", p(lists.join("list-exclude.txt"))),
+        format!("--hostlist-exclude={}", p(lists.join("list-exclude-user.txt"))),
+        format!("--ipset-exclude={}", p(lists.join("ipset-exclude.txt"))),
+        format!("--ipset-exclude={}", p(lists.join("ipset-exclude-user.txt"))),
+        "--dpi-desync=multisplit".to_string(),
+        "--dpi-desync-split-seqovl=568".to_string(),
+        "--dpi-desync-split-pos=1".to_string(),
+        format!(
+            "--dpi-desync-split-seqovl-pattern={}",
+            p(bin.join("tls_clienthello_4pda_to.bin"))
+        ),
+        "--new".to_string(),
+        "--filter-udp=443".to_string(),
+        format!("--ipset={}", p(lists.join("ipset-all.txt"))),
+        format!("--hostlist-exclude={}", p(lists.join("list-exclude.txt"))),
+        format!("--hostlist-exclude={}", p(lists.join("list-exclude-user.txt"))),
+        format!("--ipset-exclude={}", p(lists.join("ipset-exclude.txt"))),
+        format!("--ipset-exclude={}", p(lists.join("ipset-exclude-user.txt"))),
+        "--dpi-desync=fake".to_string(),
+        "--dpi-desync-repeats=6".to_string(),
+        format!(
+            "--dpi-desync-fake-quic={}",
+            p(bin.join("quic_initial_www_google_com.bin"))
+        ),
+        "--new".to_string(),
+        "--filter-tcp=80,443,8443".to_string(),
+        format!("--ipset={}", p(lists.join("ipset-all.txt"))),
+        format!("--hostlist-exclude={}", p(lists.join("list-exclude.txt"))),
+        format!("--hostlist-exclude={}", p(lists.join("list-exclude-user.txt"))),
+        format!("--ipset-exclude={}", p(lists.join("ipset-exclude.txt"))),
+        format!("--ipset-exclude={}", p(lists.join("ipset-exclude-user.txt"))),
+        "--dpi-desync=multisplit".to_string(),
+        "--dpi-desync-split-seqovl=568".to_string(),
+        "--dpi-desync-split-pos=1".to_string(),
+        format!(
+            "--dpi-desync-split-seqovl-pattern={}",
+            p(bin.join("tls_clienthello_4pda_to.bin"))
+        ),
+    ]
+}
+
+fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {
+    fs::create_dir_all(target).map_err(|err| zapret_manager_core::io_error(target, err))?;
+    for entry in fs::read_dir(source).map_err(|err| zapret_manager_core::io_error(source, err))? {
+        let entry = entry.map_err(|err| zapret_manager_core::io_error(source, err))?;
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+        if source_path.is_dir() {
+            copy_dir_recursive(&source_path, &target_path)?;
+        } else {
+            fs::copy(&source_path, &target_path)
+                .map_err(|err| zapret_manager_core::io_error(&target_path, err))?;
+        }
+    }
+    Ok(())
 }
 
 fn diag(id: &str, title: &str, status: DiagnosticStatus, action: &str) -> DiagnosticItem {
@@ -545,6 +788,14 @@ fn detect_vpn_conflict() -> VpnConflict {
     VpnConflict::none()
 }
 
+fn is_elevated() -> bool {
+    let mut command = Command::new("cmd");
+    command.args(["/C", "net session >nul 2>&1"]);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command.status().map(|status| status.success()).unwrap_or(false)
+}
+
 fn project_root() -> PathBuf {
     let mut candidates = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
@@ -564,7 +815,7 @@ fn push_ancestors(candidates: &mut Vec<PathBuf>, start: Option<&Path>) {
     let Some(mut current) = start else {
         return;
     };
-    for _ in 0..6 {
+    for _ in 0..8 {
         candidates.push(current.to_path_buf());
         candidates.push(current.join("resources"));
         let Some(parent) = current.parent() else {
@@ -575,7 +826,9 @@ fn push_ancestors(candidates: &mut Vec<PathBuf>, start: Option<&Path>) {
 }
 
 fn has_bundled_content(path: &Path) -> bool {
-    path.join("profiles").is_dir() && path.join("strategies").is_dir()
+    path.join("profiles").is_dir()
+        && path.join("strategies").is_dir()
+        && path.join("engine").join("manifest.json").is_file()
 }
 
 fn data_root() -> PathBuf {
@@ -590,6 +843,17 @@ fn trusted_sources() -> TrustedSources {
         sources: vec![TrustedSource {
             name: "bundled-local-strategies".to_string(),
             base_url: "file:///local/strategies/".to_string(),
+            pinned_manifest_sha256: None,
+        }],
+    }
+}
+
+fn engine_trusted_sources() -> TrustedSources {
+    TrustedSources {
+        sources: vec![TrustedSource {
+            name: "flowseal-zapret-discord-youtube".to_string(),
+            base_url: "https://github.com/Flowseal/zapret-discord-youtube/releases/tag/1.9.9c"
+                .to_string(),
             pinned_manifest_sha256: None,
         }],
     }

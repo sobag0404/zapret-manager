@@ -1,0 +1,8 @@
+telegram.org
+t.me
+telegram.me
+telegram.dog
+web.telegram.org
+api.telegram.org
+desktop.telegram.org
+updates.tdesktop.com

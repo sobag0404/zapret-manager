@@ -3,17 +3,17 @@ use zapret_manager_core::{AppStatus, SystemSnapshot};
 
 #[tauri::command]
 pub fn repair_driver() -> std::result::Result<String, String> {
-    Ok("Mock: драйвер не используется, проверка пропущена.".to_string())
+    Ok("WinDivert проверяется при запуске engine. Если запуск блокируется, проверьте UAC и антивирус.".to_string())
 }
 
 #[tauri::command]
 pub fn repair_service() -> std::result::Result<String, String> {
-    Ok("Mock: служба проверена.".to_string())
+    Ok("Локальный backend доступен. Отдельная Windows-служба будет вынесена в следующий этап.".to_string())
 }
 
 #[tauri::command]
 pub fn restart_engine() -> std::result::Result<String, String> {
-    Ok("Mock: engine перезапущен без запуска внешних бинарников.".to_string())
+    Ok("Остановите и снова включите режим. Engine запускается только после проверки manifest/hash.".to_string())
 }
 
 #[tauri::command]
