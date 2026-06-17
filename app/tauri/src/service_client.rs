@@ -1,10 +1,21 @@
 use std::fs;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 
 #[cfg(windows)]
+use std::os::windows::ffi::OsStrExt;
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::CloseHandle;
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::GetProcessId;
+#[cfg(windows)]
+use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+#[cfg(windows)]
+use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
 use zapret_manager_core::{
     append_debug_log, append_user_log, AppSettings, AppStatus, DiagnosticItem, DiagnosticReport,
@@ -32,7 +43,8 @@ pub struct ServiceClient {
 }
 
 struct EngineProcess {
-    child: Child,
+    child: Option<Child>,
+    pid: u32,
     runtime_dir: PathBuf,
 }
 
@@ -112,14 +124,6 @@ impl ServiceClient {
             self.disable_all()?;
         }
 
-        if !is_elevated() {
-            self.log_user("Включение остановлено: приложение запущено без прав администратора.")?;
-            return Err(ZapretError::Operation(
-                "Запустите Zapret Manager от имени администратора. WinDivert не стартует без UAC."
-                    .to_string(),
-            ));
-        }
-
         let engine = self.engine_readiness();
         if !engine.ready {
             self.log_user("Включение не выполнено: реальный engine не подключён или hash не совпал.")?;
@@ -158,9 +162,9 @@ impl ServiceClient {
         )?;
 
         let runtime_dir = self.prepare_runtime_engine()?;
-        let child = self.start_engine(&runtime_dir)?;
-        let pid = child.id();
-        self.engine = Some(EngineProcess { child, runtime_dir });
+        let engine_process = self.start_engine(&runtime_dir)?;
+        let pid = engine_process.pid;
+        self.engine = Some(engine_process);
         self.enabled_profiles = profiles.clone();
         self.enabled = true;
 
@@ -182,26 +186,30 @@ impl ServiceClient {
         )?;
 
         if let Some(mut engine) = self.engine.take() {
-            let pid = engine.child.id();
-            match engine.child.try_wait() {
-                Ok(Some(status)) => {
-                    self.log_debug(
-                        "info",
-                        "engine_already_exited",
-                        &format!("pid={pid}, status={status}"),
-                    )?;
+            let pid = engine.pid;
+            if let Some(child) = engine.child.as_mut() {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        self.log_debug(
+                            "info",
+                            "engine_already_exited",
+                            &format!("pid={pid}, status={status}"),
+                        )?;
+                    }
+                    Ok(None) => {
+                        child
+                            .kill()
+                            .map_err(|source| zapret_manager_core::io_error(&engine.runtime_dir, source))?;
+                        let _ = child.wait();
+                        self.log_debug("info", "engine_killed", &format!("pid={pid}"))?;
+                    }
+                    Err(err) => {
+                        self.log_debug("warn", "engine_stop_check_failed", &err.to_string())?;
+                    }
                 }
-                Ok(None) => {
-                    engine
-                        .child
-                        .kill()
-                        .map_err(|source| zapret_manager_core::io_error(&engine.runtime_dir, source))?;
-                    let _ = engine.child.wait();
-                    self.log_debug("info", "engine_killed", &format!("pid={pid}"))?;
-                }
-                Err(err) => {
-                    self.log_debug("warn", "engine_stop_check_failed", &err.to_string())?;
-                }
+            } else {
+                stop_pid(pid, &engine.runtime_dir)?;
+                self.log_debug("info", "engine_taskkill_sent", &format!("pid={pid}"))?;
             }
         }
 
@@ -229,7 +237,7 @@ impl ServiceClient {
                 if admin {
                     "Приложение запущено с правами администратора."
                 } else {
-                    "Для запуска WinDivert откройте приложение от имени администратора."
+                    "GUI может работать без администратора. При включении появится UAC-запрос для engine."
                 },
             ),
             diag(
@@ -599,7 +607,7 @@ impl ServiceClient {
         Ok(target)
     }
 
-    fn start_engine(&self, runtime_dir: &Path) -> Result<Child> {
+    fn start_engine(&self, runtime_dir: &Path) -> Result<EngineProcess> {
         let bin = runtime_dir.join("bin");
         let exe = bin.join("winws.exe");
         let args = build_winws_args(runtime_dir, &self.settings.engine_strategy);
@@ -614,6 +622,11 @@ impl ServiceClient {
                 args.len()
             ),
         )?;
+
+        if !is_elevated() {
+            self.log_user("Запрашиваются права администратора для запуска engine.")?;
+            return self.start_engine_elevated(runtime_dir, &exe, &bin, &args);
+        }
 
         let mut command = Command::new(&exe);
         command
@@ -637,7 +650,33 @@ impl ServiceClient {
                 "Engine сразу завершился со статусом {status}. Проверьте права администратора, WinDivert и антивирус."
             )));
         }
-        Ok(child)
+        Ok(EngineProcess {
+            pid: child.id(),
+            child: Some(child),
+            runtime_dir: runtime_dir.to_path_buf(),
+        })
+    }
+
+    fn start_engine_elevated(
+        &self,
+        runtime_dir: &Path,
+        exe: &Path,
+        bin: &Path,
+        args: &[String],
+    ) -> Result<EngineProcess> {
+        let pid = runas_process(exe, bin, args)?;
+        std::thread::sleep(std::time::Duration::from_millis(900));
+        if !pid_is_running(pid) {
+            return Err(ZapretError::Operation(
+                "Engine был запущен, но процесс сразу завершился. Проверьте WinDivert/антивирус."
+                    .to_string(),
+            ));
+        }
+        Ok(EngineProcess {
+            child: None,
+            pid,
+            runtime_dir: runtime_dir.to_path_buf(),
+        })
     }
 
     fn write_settings(&self) -> Result<()> {
@@ -869,6 +908,111 @@ fn normalized_engine_strategy(strategy: &str) -> String {
     match strategy {
         "alt" | "alt2" | "alt3" | "simple_fake" | "fake_tls_auto" => strategy.to_string(),
         _ => "general".to_string(),
+    }
+}
+
+fn pid_is_running(pid: u32) -> bool {
+    let mut command = Command::new("tasklist.exe");
+    command.args([
+        "/FI",
+        &format!("PID eq {pid}"),
+        "/FO",
+        "CSV",
+        "/NH",
+    ]);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+        .output()
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .any(|line| line.contains(&pid.to_string()))
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn runas_process(exe: &Path, work_dir: &Path, args: &[String]) -> Result<u32> {
+    let operation = wide_null("runas");
+    let file = wide_null(&exe.to_string_lossy());
+    let directory = wide_null(&work_dir.to_string_lossy());
+    let parameters = wide_null(&args.iter().map(|arg| quote_cmd_arg(arg)).collect::<Vec<_>>().join(" "));
+
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS,
+        hwnd: std::ptr::null_mut(),
+        lpVerb: operation.as_ptr(),
+        lpFile: file.as_ptr(),
+        lpParameters: parameters.as_ptr(),
+        lpDirectory: directory.as_ptr(),
+        nShow: SW_HIDE,
+        hInstApp: std::ptr::null_mut(),
+        lpIDList: std::ptr::null_mut(),
+        lpClass: std::ptr::null(),
+        hkeyClass: std::ptr::null_mut(),
+        dwHotKey: 0,
+        Anonymous: Default::default(),
+        hProcess: std::ptr::null_mut(),
+    };
+
+    let ok = unsafe { ShellExecuteExW(&mut info) };
+    if ok == 0 || info.hProcess.is_null() {
+        return Err(ZapretError::Operation(
+            "UAC запуск engine отменён или Windows не смог запустить winws.exe.".to_string(),
+        ));
+    }
+
+    let pid = unsafe { GetProcessId(info.hProcess) };
+    unsafe {
+        CloseHandle(info.hProcess);
+    }
+    if pid == 0 {
+        return Err(ZapretError::Operation(
+            "Engine запущен, но Windows не вернул PID процесса.".to_string(),
+        ));
+    }
+    Ok(pid)
+}
+
+#[cfg(not(windows))]
+fn runas_process(_exe: &Path, _work_dir: &Path, _args: &[String]) -> Result<u32> {
+    Err(ZapretError::Operation(
+        "Elevated engine launch is supported on Windows only.".to_string(),
+    ))
+}
+
+#[cfg(windows)]
+fn wide_null(value: &str) -> Vec<u16> {
+    OsStr::new(value).encode_wide().chain(std::iter::once(0)).collect()
+}
+
+fn quote_cmd_arg(arg: &str) -> String {
+    if !arg.chars().any(|ch| ch.is_whitespace() || ch == '"') {
+        return arg.to_string();
+    }
+    let escaped = arg.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
+fn stop_pid(pid: u32, context: &Path) -> Result<()> {
+    if !pid_is_running(pid) {
+        return Ok(());
+    }
+    let mut command = Command::new("taskkill.exe");
+    command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let status = command
+        .status()
+        .map_err(|source| zapret_manager_core::io_error(context, source))?;
+    if status.success() || !pid_is_running(pid) {
+        Ok(())
+    } else {
+        Err(ZapretError::Operation(format!(
+            "Не удалось остановить engine PID {pid}."
+        )))
     }
 }
 

@@ -4787,6 +4787,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-shell",
+ "windows-sys 0.61.2",
  "zapret-manager-core",
 ]
 

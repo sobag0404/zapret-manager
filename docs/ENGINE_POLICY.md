@@ -27,11 +27,12 @@ an explicit user or developer-channel policy decision.
 
 ## Runtime Arguments
 
-The manager launches `bin/winws.exe` directly and builds arguments internally
-from audited Flowseal strategy shapes. Current selectable strategies are
-`general`, `alt`, `alt2`, `alt3`, `simple_fake`, and `fake_tls_auto`.
-Free-form argument entry is a developer feature and must never be enabled for
-normal users without clear risk labeling.
+The manager starts `bin/winws.exe` directly with Windows ShellExecute `runas`
+from audited Flowseal strategy shapes. The GUI itself does not require
+administrator rights; the engine launch requests UAC only when the user presses
+`Включить`. Current selectable strategies are `general`, `alt`, `alt2`, `alt3`,
+`simple_fake`, and `fake_tls_auto`. Free-form argument entry is a developer
+feature and must never be enabled for normal users without clear risk labeling.
 
 ## Quarantine
 

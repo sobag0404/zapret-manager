@@ -13,4 +13,5 @@ serde_json.workspace = true
 chrono.workspace = true
 tauri = { version = "2.11.2", features = ["tray-icon"] }
 tauri-plugin-shell = "2.3.2"
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 zapret-manager-core = { path = "../../core" }
