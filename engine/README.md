@@ -9,8 +9,9 @@ Current source:
 
 Rules:
 
-- do not run upstream `.bat`, `.cmd`, `.ps1`, or installer scripts;
-- start only `bin/winws.exe`;
+- bundled `general*.bat` strategies are hash-verified and used as the primary
+  launch path;
+- do not run upstream installer/update scripts;
 - verify every runtime file through `engine/manifest.json`;
 - copy files to `%LOCALAPPDATA%\ZapretManager\engine-runtime` before launch;
 - stop the child process on normal disable, emergency disable, and tray exit.

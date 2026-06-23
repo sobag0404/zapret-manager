@@ -608,64 +608,34 @@ impl ServiceClient {
     }
 
     fn start_engine(&self, runtime_dir: &Path) -> Result<EngineProcess> {
-        let bin = runtime_dir.join("bin");
-        let exe = bin.join("winws.exe");
-        let args = build_winws_args(runtime_dir, &self.settings.engine_strategy);
         let strategy = normalized_engine_strategy(&self.settings.engine_strategy);
+        let bat = runtime_dir.join(strategy_bat_file(&strategy));
         self.log_debug(
             "info",
-            "engine_start_command",
+            "engine_start_flowseal_bat",
             &format!(
-                "exe={}, strategy={}, args_count={}",
-                exe.display(),
-                strategy,
-                args.len()
+                "bat={}, strategy={}",
+                bat.display(),
+                strategy
             ),
         )?;
 
-        if !is_elevated() {
-            self.log_user("Запрашиваются права администратора для запуска engine.")?;
-            return self.start_engine_elevated(runtime_dir, &exe, &bin, &args);
-        }
+        let before = winws_pids();
+        launch_strategy_bat(&bat, runtime_dir)?;
+        std::thread::sleep(std::time::Duration::from_millis(1400));
+        let after = winws_pids();
+        let pid = after
+            .iter()
+            .copied()
+            .find(|pid| !before.contains(pid))
+            .or_else(|| after.first().copied())
+            .ok_or_else(|| {
+                ZapretError::Operation(
+                    "Flowseal strategy запустилась, но winws.exe не найден. Проверьте UAC/WinDivert/антивирус."
+                        .to_string(),
+                )
+            })?;
 
-        let mut command = Command::new(&exe);
-        command
-            .current_dir(&bin)
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        #[cfg(windows)]
-        command.creation_flags(CREATE_NO_WINDOW);
-
-        let mut child = command
-            .spawn()
-            .map_err(|source| zapret_manager_core::io_error(&exe, source))?;
-        std::thread::sleep(std::time::Duration::from_millis(900));
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|source| zapret_manager_core::io_error(&exe, source))?
-        {
-            return Err(ZapretError::Operation(format!(
-                "Engine сразу завершился со статусом {status}. Проверьте права администратора, WinDivert и антивирус."
-            )));
-        }
-        Ok(EngineProcess {
-            pid: child.id(),
-            child: Some(child),
-            runtime_dir: runtime_dir.to_path_buf(),
-        })
-    }
-
-    fn start_engine_elevated(
-        &self,
-        runtime_dir: &Path,
-        exe: &Path,
-        bin: &Path,
-        args: &[String],
-    ) -> Result<EngineProcess> {
-        let pid = runas_process(exe, bin, args)?;
-        std::thread::sleep(std::time::Duration::from_millis(900));
         if !pid_is_running(pid) {
             return Err(ZapretError::Operation(
                 "Engine был запущен, но процесс сразу завершился. Проверьте WinDivert/антивирус."
@@ -691,217 +661,51 @@ impl ServiceClient {
     }
 }
 
+fn strategy_bat_file(strategy: &str) -> &'static str {
+    match strategy {
+        "alt" => "general (ALT).bat",
+        "alt2" => "general (ALT2).bat",
+        "alt3" => "general (ALT3).bat",
+        "simple_fake" => "general (SIMPLE FAKE).bat",
+        "fake_tls_auto" => "general (FAKE TLS AUTO).bat",
+        _ => "general.bat",
+    }
+}
+
+fn launch_strategy_bat(bat: &Path, work_dir: &Path) -> Result<()> {
+    if is_elevated() {
+        let mut command = Command::new("cmd.exe");
+        command
+            .current_dir(work_dir)
+            .args(["/C", &bat.to_string_lossy()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        command.creation_flags(CREATE_NO_WINDOW);
+        let status = command
+            .status()
+            .map_err(|source| zapret_manager_core::io_error(bat, source))?;
+        if status.success() {
+            return Ok(());
+        }
+        return Err(ZapretError::Operation(format!(
+            "Flowseal strategy завершилась со статусом {status}."
+        )));
+    }
+
+    runas_process(
+        Path::new("cmd.exe"),
+        work_dir,
+        &["/C".to_string(), bat.to_string_lossy().to_string()],
+    )?;
+    Ok(())
+}
+
 struct EngineReadiness {
     ready: bool,
     version: String,
     message: String,
-}
-
-fn build_winws_args(runtime_dir: &Path, strategy: &str) -> Vec<String> {
-    let bin = runtime_dir.join("bin");
-    let lists = runtime_dir.join("lists");
-    let p = |path: PathBuf| path.to_string_lossy().to_string();
-    let strategy = normalized_engine_strategy(strategy);
-
-    let mut args = vec![
-        "--wf-tcp=80,443,2053,2083,2087,2096,8443".to_string(),
-        "--wf-udp=443,19294-19344,50000-50100".to_string(),
-        "--filter-udp=443".to_string(),
-        format!("--hostlist={}", p(lists.join("list-general.txt"))),
-        format!("--hostlist={}", p(lists.join("list-general-user.txt"))),
-        format!("--hostlist-exclude={}", p(lists.join("list-exclude.txt"))),
-        format!("--hostlist-exclude={}", p(lists.join("list-exclude-user.txt"))),
-        format!("--ipset-exclude={}", p(lists.join("ipset-exclude.txt"))),
-        format!("--ipset-exclude={}", p(lists.join("ipset-exclude-user.txt"))),
-        "--dpi-desync=fake".to_string(),
-        format!("--dpi-desync-repeats={}", if strategy == "fake_tls_auto" { 11 } else { 6 }),
-        format!(
-            "--dpi-desync-fake-quic={}",
-            p(bin.join("quic_initial_www_google_com.bin"))
-        ),
-        "--new".to_string(),
-        "--filter-udp=19294-19344,50000-50100".to_string(),
-        "--filter-l7=discord,stun".to_string(),
-        "--dpi-desync=fake".to_string(),
-        format!(
-            "--dpi-desync-fake-discord={}",
-            p(bin.join("quic_initial_dbankcloud_ru.bin"))
-        ),
-        format!(
-            "--dpi-desync-fake-stun={}",
-            p(bin.join("quic_initial_dbankcloud_ru.bin"))
-        ),
-        "--dpi-desync-repeats=6".to_string(),
-        "--new".to_string(),
-        "--filter-tcp=2053,2083,2087,2096,8443".to_string(),
-        "--hostlist-domains=discord.media".to_string(),
-    ];
-    push_tls_strategy_args(&mut args, &bin, "discord_media", &strategy);
-    args.extend([
-        "--new".to_string(),
-        "--filter-tcp=443".to_string(),
-        format!("--hostlist={}", p(lists.join("list-google.txt"))),
-        "--ip-id=zero".to_string(),
-    ]);
-    push_tls_strategy_args(&mut args, &bin, "google", &strategy);
-    args.extend([
-        "--new".to_string(),
-        "--filter-tcp=80,443".to_string(),
-        format!("--hostlist={}", p(lists.join("list-general.txt"))),
-        format!("--hostlist={}", p(lists.join("list-general-user.txt"))),
-        format!("--hostlist-exclude={}", p(lists.join("list-exclude.txt"))),
-        format!("--hostlist-exclude={}", p(lists.join("list-exclude-user.txt"))),
-        format!("--ipset-exclude={}", p(lists.join("ipset-exclude.txt"))),
-        format!("--ipset-exclude={}", p(lists.join("ipset-exclude-user.txt"))),
-    ]);
-    push_tls_strategy_args(&mut args, &bin, "general", &strategy);
-    args.extend([
-        "--new".to_string(),
-        "--filter-udp=443".to_string(),
-        format!("--ipset={}", p(lists.join("ipset-all.txt"))),
-        format!("--hostlist-exclude={}", p(lists.join("list-exclude.txt"))),
-        format!("--hostlist-exclude={}", p(lists.join("list-exclude-user.txt"))),
-        format!("--ipset-exclude={}", p(lists.join("ipset-exclude.txt"))),
-        format!("--ipset-exclude={}", p(lists.join("ipset-exclude-user.txt"))),
-        "--dpi-desync=fake".to_string(),
-        format!("--dpi-desync-repeats={}", if strategy == "fake_tls_auto" { 11 } else { 6 }),
-        format!(
-            "--dpi-desync-fake-quic={}",
-            p(bin.join("quic_initial_www_google_com.bin"))
-        ),
-        "--new".to_string(),
-        "--filter-tcp=80,443,8443".to_string(),
-        format!("--ipset={}", p(lists.join("ipset-all.txt"))),
-        format!("--hostlist-exclude={}", p(lists.join("list-exclude.txt"))),
-        format!("--hostlist-exclude={}", p(lists.join("list-exclude-user.txt"))),
-        format!("--ipset-exclude={}", p(lists.join("ipset-exclude.txt"))),
-        format!("--ipset-exclude={}", p(lists.join("ipset-exclude-user.txt"))),
-    ]);
-    push_tls_strategy_args(&mut args, &bin, "ipset", &strategy);
-    args
-}
-
-fn push_tls_strategy_args(args: &mut Vec<String>, bin: &Path, scope: &str, strategy: &str) {
-    let p = |path: PathBuf| path.to_string_lossy().to_string();
-    match strategy {
-        "alt" => {
-            args.extend([
-                "--dpi-desync=fake,fakedsplit".to_string(),
-                "--dpi-desync-repeats=6".to_string(),
-                "--dpi-desync-fooling=ts".to_string(),
-                "--dpi-desync-fakedsplit-pattern=0x00".to_string(),
-            ]);
-            if matches!(scope, "discord_media" | "google") {
-                args.push(format!(
-                    "--dpi-desync-fake-tls={}",
-                    p(bin.join("tls_clienthello_www_google_com.bin"))
-                ));
-            } else {
-                push_simple_fake_payloads(args, bin);
-            }
-        }
-        "alt2" => {
-            args.extend([
-                "--dpi-desync=multisplit".to_string(),
-                "--dpi-desync-split-seqovl=652".to_string(),
-                "--dpi-desync-split-pos=2".to_string(),
-                format!(
-                    "--dpi-desync-split-seqovl-pattern={}",
-                    p(bin.join("tls_clienthello_www_google_com.bin"))
-                ),
-            ]);
-        }
-        "alt3" => {
-            args.extend([
-                "--dpi-desync=fake,hostfakesplit".to_string(),
-                format!(
-                    "--dpi-desync-fake-tls-mod=rnd,dupsid,sni={}",
-                    if matches!(scope, "discord_media" | "google") {
-                        "www.google.com"
-                    } else {
-                        "ya.ru"
-                    }
-                ),
-                format!(
-                    "--dpi-desync-hostfakesplit-mod=host={},altorder=1",
-                    if matches!(scope, "discord_media" | "google") {
-                        "www.google.com"
-                    } else {
-                        "ya.ru"
-                    }
-                ),
-                "--dpi-desync-fooling=ts".to_string(),
-            ]);
-            if !matches!(scope, "discord_media" | "google") {
-                args.push(format!(
-                    "--dpi-desync-fake-http={}",
-                    p(bin.join("tls_clienthello_max_ru.bin"))
-                ));
-            }
-        }
-        "simple_fake" => {
-            args.extend([
-                "--dpi-desync=fake".to_string(),
-                "--dpi-desync-repeats=6".to_string(),
-                "--dpi-desync-fooling=ts".to_string(),
-            ]);
-            if matches!(scope, "discord_media" | "google") {
-                args.push(format!(
-                    "--dpi-desync-fake-tls={}",
-                    p(bin.join("tls_clienthello_www_google_com.bin"))
-                ));
-            } else {
-                push_simple_fake_payloads(args, bin);
-            }
-        }
-        "fake_tls_auto" => {
-            args.extend([
-                "--dpi-desync=fake,multidisorder".to_string(),
-                "--dpi-desync-split-pos=1,midsld".to_string(),
-                "--dpi-desync-repeats=11".to_string(),
-                "--dpi-desync-fooling=badseq".to_string(),
-                "--dpi-desync-fake-tls=0x00000000".to_string(),
-                "--dpi-desync-fake-tls=!".to_string(),
-                "--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com".to_string(),
-            ]);
-            if !matches!(scope, "discord_media" | "google") {
-                args.push(format!(
-                    "--dpi-desync-fake-http={}",
-                    p(bin.join("tls_clienthello_max_ru.bin"))
-                ));
-            }
-        }
-        _ => {
-            let (seq, pos, pattern) = match scope {
-                "discord_media" | "google" => (681, 1, "tls_clienthello_www_google_com.bin"),
-                _ => (568, 1, "tls_clienthello_4pda_to.bin"),
-            };
-            args.extend([
-                "--dpi-desync=multisplit".to_string(),
-                format!("--dpi-desync-split-seqovl={seq}"),
-                format!("--dpi-desync-split-pos={pos}"),
-                format!(
-                    "--dpi-desync-split-seqovl-pattern={}",
-                    p(bin.join(pattern))
-                ),
-            ]);
-        }
-    }
-}
-
-fn push_simple_fake_payloads(args: &mut Vec<String>, bin: &Path) {
-    let p = |path: PathBuf| path.to_string_lossy().to_string();
-    args.extend([
-        format!("--dpi-desync-fake-tls={}", p(bin.join("stun.bin"))),
-        format!(
-            "--dpi-desync-fake-tls={}",
-            p(bin.join("tls_clienthello_www_google_com.bin"))
-        ),
-        format!(
-            "--dpi-desync-fake-http={}",
-            p(bin.join("tls_clienthello_max_ru.bin"))
-        ),
-    ]);
 }
 
 fn normalized_engine_strategy(strategy: &str) -> String {
@@ -930,6 +734,27 @@ fn pid_is_running(pid: u32) -> bool {
                 .any(|line| line.contains(&pid.to_string()))
         })
         .unwrap_or(false)
+}
+
+fn winws_pids() -> Vec<u32> {
+    let mut command = Command::new("tasklist.exe");
+    command.args(["/FI", "IMAGENAME eq winws.exe", "/FO", "CSV", "/NH"]);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let Ok(output) = command.output() else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split(',');
+            let _image = fields.next()?;
+            fields
+                .next()
+                .map(|pid| pid.trim().trim_matches('"').parse::<u32>().ok())
+                .flatten()
+        })
+        .collect()
 }
 
 #[cfg(windows)]

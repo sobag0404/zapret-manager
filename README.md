@@ -59,10 +59,11 @@ cargo tauri build
 The installer artifact is produced by Tauri/NSIS under
 `target/release/bundle/nsis/`.
 
-The GUI starts normally. When the user presses `Включить`, the app launches
-`winws.exe` with Windows UAC (`runas`) because WinDivert cannot start without
-elevated rights. Closing the window hides the app to tray; choosing `Закрыть`
-in the tray menu stops the engine first.
+The GUI starts normally. When the user presses `Включить`, the app launches the
+selected verified Flowseal `general*.bat` strategy with Windows UAC (`runas`).
+That `.bat` starts `winws.exe` exactly like the upstream working bundle. Closing
+the window hides the app to tray; choosing `Закрыть` in the tray menu stops the
+engine first.
 
 Available engine strategies in the UI:
 
