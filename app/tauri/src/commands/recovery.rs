@@ -8,7 +8,10 @@ pub fn repair_driver() -> std::result::Result<String, String> {
 
 #[tauri::command]
 pub fn repair_service() -> std::result::Result<String, String> {
-    Ok("Локальный backend доступен. Отдельная Windows-служба будет вынесена в следующий этап.".to_string())
+    Ok(
+        "Локальный backend доступен. Отдельная Windows-служба будет вынесена в следующий этап."
+            .to_string(),
+    )
 }
 
 #[tauri::command]

@@ -1,5 +1,5 @@
-use std::fs;
 use std::ffi::OsStr;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
@@ -126,7 +126,9 @@ impl ServiceClient {
 
         let engine = self.engine_readiness();
         if !engine.ready {
-            self.log_user("Включение не выполнено: реальный engine не подключён или hash не совпал.")?;
+            self.log_user(
+                "Включение не выполнено: реальный engine не подключён или hash не совпал.",
+            )?;
             self.log_debug("warn", "enable_blocked_engine_missing", &engine.message)?;
             return Err(ZapretError::Operation(engine.message));
         }
@@ -161,6 +163,7 @@ impl ServiceClient {
             &format!("path={}", snapshot_path.display()),
         )?;
 
+        stop_existing_winws_best_effort();
         let runtime_dir = self.prepare_runtime_engine()?;
         let engine_process = self.start_engine(&runtime_dir)?;
         let pid = engine_process.pid;
@@ -197,9 +200,9 @@ impl ServiceClient {
                         )?;
                     }
                     Ok(None) => {
-                        child
-                            .kill()
-                            .map_err(|source| zapret_manager_core::io_error(&engine.runtime_dir, source))?;
+                        child.kill().map_err(|source| {
+                            zapret_manager_core::io_error(&engine.runtime_dir, source)
+                        })?;
                         let _ = child.wait();
                         self.log_debug("info", "engine_killed", &format!("pid={pid}"))?;
                     }
@@ -211,6 +214,7 @@ impl ServiceClient {
                 stop_pid(pid, &engine.runtime_dir)?;
                 self.log_debug("info", "engine_taskkill_sent", &format!("pid={pid}"))?;
             }
+            cleanup_runtime_dir_best_effort(&engine.runtime_dir);
         }
 
         self.enabled = false;
@@ -548,23 +552,25 @@ impl ServiceClient {
         let engine_dir = self.content_root.join("engine").join("local");
         let trusted = engine_trusted_sources();
 
-        let manifest: EngineManifest = match zapret_manager_core::load_engine_manifest(&manifest_path) {
-            Ok(manifest) => manifest,
-            Err(err) => {
-                return EngineReadiness {
-                    ready: false,
-                    version: "unknown".to_string(),
-                    message: format!("Engine manifest не найден или повреждён: {err}."),
+        let manifest: EngineManifest =
+            match zapret_manager_core::load_engine_manifest(&manifest_path) {
+                Ok(manifest) => manifest,
+                Err(err) => {
+                    return EngineReadiness {
+                        ready: false,
+                        version: "unknown".to_string(),
+                        message: format!("Engine manifest не найден или повреждён: {err}."),
+                    }
                 }
-            }
-        };
+            };
 
         if manifest.files.is_empty() {
             return EngineReadiness {
                 ready: false,
                 version: manifest.engine_version,
-                message: "Реальный engine не подключён. Доступ к Discord/YouTube/Telegram не изменится."
-                    .to_string(),
+                message:
+                    "Реальный engine не подключён. Доступ к Discord/YouTube/Telegram не изменится."
+                        .to_string(),
             };
         }
 
@@ -593,12 +599,16 @@ impl ServiceClient {
 
     fn prepare_runtime_engine(&self) -> Result<PathBuf> {
         let source = self.content_root.join("engine").join("local");
-        let target = self.data_root.join("engine-runtime");
-        if target.exists() {
-            fs::remove_dir_all(&target)
-                .map_err(|source_err| zapret_manager_core::io_error(&target, source_err))?;
-        }
+        let runtime_root = self.data_root.join("engine-runtime");
+        fs::create_dir_all(&runtime_root)
+            .map_err(|source_err| zapret_manager_core::io_error(&runtime_root, source_err))?;
+        let run_id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0);
+        let target = runtime_root.join(format!("run-{run_id}"));
         copy_dir_recursive(&source, &target)?;
+        cleanup_old_runtime_dirs(&runtime_root, &target);
         self.log_debug(
             "info",
             "engine_runtime_prepared",
@@ -613,11 +623,7 @@ impl ServiceClient {
         self.log_debug(
             "info",
             "engine_start_flowseal_bat",
-            &format!(
-                "bat={}, strategy={}",
-                bat.display(),
-                strategy
-            ),
+            &format!("bat={}, strategy={}", bat.display(), strategy),
         )?;
 
         let before = winws_pids();
@@ -717,13 +723,7 @@ fn normalized_engine_strategy(strategy: &str) -> String {
 
 fn pid_is_running(pid: u32) -> bool {
     let mut command = Command::new("tasklist.exe");
-    command.args([
-        "/FI",
-        &format!("PID eq {pid}"),
-        "/FO",
-        "CSV",
-        "/NH",
-    ]);
+    command.args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]);
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     command
@@ -762,7 +762,13 @@ fn runas_process(exe: &Path, work_dir: &Path, args: &[String]) -> Result<u32> {
     let operation = wide_null("runas");
     let file = wide_null(&exe.to_string_lossy());
     let directory = wide_null(&work_dir.to_string_lossy());
-    let parameters = wide_null(&args.iter().map(|arg| quote_cmd_arg(arg)).collect::<Vec<_>>().join(" "));
+    let parameters = wide_null(
+        &args
+            .iter()
+            .map(|arg| quote_cmd_arg(arg))
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
 
     let mut info = SHELLEXECUTEINFOW {
         cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
@@ -810,7 +816,10 @@ fn runas_process(_exe: &Path, _work_dir: &Path, _args: &[String]) -> Result<u32>
 
 #[cfg(windows)]
 fn wide_null(value: &str) -> Vec<u16> {
-    OsStr::new(value).encode_wide().chain(std::iter::once(0)).collect()
+    OsStr::new(value)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
 }
 
 fn quote_cmd_arg(arg: &str) -> String {
@@ -819,6 +828,14 @@ fn quote_cmd_arg(arg: &str) -> String {
     }
     let escaped = arg.replace('\\', "\\\\").replace('"', "\\\"");
     format!("\"{escaped}\"")
+}
+
+fn stop_existing_winws_best_effort() {
+    let mut command = Command::new("taskkill.exe");
+    command.args(["/IM", "winws.exe", "/T", "/F"]);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let _ = command.status();
 }
 
 fn stop_pid(pid: u32, context: &Path) -> Result<()> {
@@ -838,6 +855,23 @@ fn stop_pid(pid: u32, context: &Path) -> Result<()> {
         Err(ZapretError::Operation(format!(
             "Не удалось остановить engine PID {pid}."
         )))
+    }
+}
+
+fn cleanup_runtime_dir_best_effort(path: &Path) {
+    let _ = fs::remove_dir_all(path);
+}
+
+fn cleanup_old_runtime_dirs(runtime_root: &Path, keep: &Path) {
+    let Ok(entries) = fs::read_dir(runtime_root) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path != keep && path.is_dir() {
+            cleanup_runtime_dir_best_effort(&path);
+        }
     }
 }
 
@@ -896,7 +930,10 @@ fn is_elevated() -> bool {
     command.args(["/C", "net session >nul 2>&1"]);
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
-    command.status().map(|status| status.success()).unwrap_or(false)
+    command
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn project_root() -> PathBuf {
@@ -946,8 +983,8 @@ fn load_settings(data_root: &Path) -> Result<AppSettings> {
     if !path.exists() {
         return Ok(AppSettings::default());
     }
-    let text = fs::read_to_string(&path)
-        .map_err(|source| zapret_manager_core::io_error(&path, source))?;
+    let text =
+        fs::read_to_string(&path).map_err(|source| zapret_manager_core::io_error(&path, source))?;
     serde_json::from_str(&text).map_err(|source| zapret_manager_core::json_error(path, source))
 }
 
