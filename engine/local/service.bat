@@ -6,8 +6,10 @@ if "%~1"=="status_zapret" (
 )
 if "%~1"=="check_updates" exit /b
 if "%~1"=="load_game_filter" (
-    set "GameFilterTCP="
-    set "GameFilterUDP="
+    rem Keep Flowseal strategy placeholders syntactically valid.
+    rem The bundled ipset-all.txt points to TEST-NET, so these fallback ports do not target real services.
+    set "GameFilterTCP=65535"
+    set "GameFilterUDP=65535"
     exit /b
 )
 if "%~1"=="load_user_lists" (

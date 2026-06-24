@@ -628,18 +628,12 @@ impl ServiceClient {
 
         let before = winws_pids();
         launch_strategy_bat(&bat, runtime_dir)?;
-        std::thread::sleep(std::time::Duration::from_millis(1400));
-        let after = winws_pids();
-        let pid = after
-            .iter()
-            .copied()
-            .find(|pid| !before.contains(pid))
-            .or_else(|| after.first().copied())
+        let pid = wait_for_new_winws_pid(&before, std::time::Duration::from_secs(8))
             .ok_or_else(|| {
-                ZapretError::Operation(
-                    "Flowseal strategy запустилась, но winws.exe не найден. Проверьте UAC/WinDivert/антивирус."
-                        .to_string(),
-                )
+                ZapretError::Operation(format!(
+                    "Flowseal strategy запустилась, но winws.exe не найден. Проверьте UAC/WinDivert/антивирус. Лог запуска: {}",
+                    runtime_dir.join("engine-launch.log").display()
+                ))
             })?;
 
         if !pid_is_running(pid) {
@@ -679,11 +673,12 @@ fn strategy_bat_file(strategy: &str) -> &'static str {
 }
 
 fn launch_strategy_bat(bat: &Path, work_dir: &Path) -> Result<()> {
+    let launcher = write_launch_wrapper(bat, work_dir)?;
     if is_elevated() {
         let mut command = Command::new("cmd.exe");
         command
             .current_dir(work_dir)
-            .args(["/C", &bat.to_string_lossy()])
+            .args(["/C", &launcher.to_string_lossy()])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -703,9 +698,28 @@ fn launch_strategy_bat(bat: &Path, work_dir: &Path) -> Result<()> {
     runas_process(
         Path::new("cmd.exe"),
         work_dir,
-        &["/C".to_string(), bat.to_string_lossy().to_string()],
+        &["/C".to_string(), launcher.to_string_lossy().to_string()],
     )?;
     Ok(())
+}
+
+fn write_launch_wrapper(bat: &Path, work_dir: &Path) -> Result<PathBuf> {
+    let launcher = work_dir.join("manager-launch.cmd");
+    let log = work_dir.join("engine-launch.log");
+    let script = format!(
+        "@echo off\r\ncd /d \"{}\"\r\necho [%date% %time%] Starting {} > \"{}\"\r\ncall \"{}\" >> \"{}\" 2>&1\r\necho [%date% %time%] Strategy exited with %errorlevel% >> \"{}\"\r\n",
+        work_dir.display(),
+        bat.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("strategy"),
+        log.display(),
+        bat.display(),
+        log.display(),
+        log.display()
+    );
+    fs::write(&launcher, script)
+        .map_err(|source| zapret_manager_core::io_error(&launcher, source))?;
+    Ok(launcher)
 }
 
 struct EngineReadiness {
@@ -718,6 +732,20 @@ fn normalized_engine_strategy(strategy: &str) -> String {
     match strategy {
         "alt" | "alt2" | "alt3" | "simple_fake" | "fake_tls_auto" => strategy.to_string(),
         _ => "general".to_string(),
+    }
+}
+
+fn wait_for_new_winws_pid(before: &[u32], timeout: std::time::Duration) -> Option<u32> {
+    let started = std::time::Instant::now();
+    loop {
+        let after = winws_pids();
+        if let Some(pid) = after.iter().copied().find(|pid| !before.contains(pid)) {
+            return Some(pid);
+        }
+        if started.elapsed() >= timeout {
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
     }
 }
 
