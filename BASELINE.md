@@ -5,9 +5,11 @@
 - Date: 2026-06-25
 - Git commit: `4de89c6`
 - Tag: `baseline-fake-fakedsplit-working`
+- Release name: `ZapretManager v1.0`
 - Working mode: `fake+fakedsplit`
 - Installer source path: `target/release/bundle/nsis/ZapretManagerSetup.exe`
 - Local saved copy: `target/release/bundle/nsis/ZapretManagerSetup-baseline-fake-fakedsplit.exe`
+- v1.0 local copy: `target/release/bundle/nsis/ZapretManager v1.0.exe`
 
 Важно:
 
