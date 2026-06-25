@@ -684,15 +684,11 @@ fn launch_strategy_bat(bat: &Path, work_dir: &Path) -> Result<()> {
             .stderr(Stdio::null());
         #[cfg(windows)]
         command.creation_flags(CREATE_NO_WINDOW);
-        let status = command
-            .status()
+        let child = command
+            .spawn()
             .map_err(|source| zapret_manager_core::io_error(bat, source))?;
-        if status.success() {
-            return Ok(());
-        }
-        return Err(ZapretError::Operation(format!(
-            "Flowseal strategy завершилась со статусом {status}."
-        )));
+        drop(child);
+        return Ok(());
     }
 
     runas_process(
@@ -705,7 +701,20 @@ fn launch_strategy_bat(bat: &Path, work_dir: &Path) -> Result<()> {
 
 fn write_launch_wrapper(bat: &Path, work_dir: &Path) -> Result<PathBuf> {
     let launcher = work_dir.join("manager-launch.cmd");
+    let strategy = work_dir.join("manager-strategy.cmd");
     let log = work_dir.join("engine-launch.log");
+    let strategy_source =
+        fs::read_to_string(bat).map_err(|source| zapret_manager_core::io_error(bat, source))?;
+    let strategy_script = strategy_source.replace("start \"zapret: %~n0\" /min ", "");
+    if strategy_script == strategy_source {
+        return Err(ZapretError::Operation(format!(
+            "Flowseal strategy has unsupported launch format: {}",
+            bat.display()
+        )));
+    }
+    fs::write(&strategy, strategy_script)
+        .map_err(|source| zapret_manager_core::io_error(&strategy, source))?;
+
     let script = format!(
         "@echo off\r\ncd /d \"{}\"\r\necho [%date% %time%] Starting {} > \"{}\"\r\ncall \"{}\" >> \"{}\" 2>&1\r\necho [%date% %time%] Strategy exited with %errorlevel% >> \"{}\"\r\n",
         work_dir.display(),
@@ -713,7 +722,7 @@ fn write_launch_wrapper(bat: &Path, work_dir: &Path) -> Result<PathBuf> {
             .and_then(|name| name.to_str())
             .unwrap_or("strategy"),
         log.display(),
-        bat.display(),
+        strategy.display(),
         log.display(),
         log.display()
     );
