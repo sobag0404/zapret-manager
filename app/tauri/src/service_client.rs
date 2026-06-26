@@ -1,5 +1,6 @@
 use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
@@ -47,6 +48,8 @@ pub struct ServiceClient {
 
 struct EngineProcess {
     child: Option<Child>,
+    #[cfg(windows)]
+    process_handle: Option<isize>,
     pid: u32,
     runtime_dir: PathBuf,
 }
@@ -164,7 +167,7 @@ impl ServiceClient {
             &format!("path={}", snapshot_path.display()),
         )?;
 
-        stop_existing_winws_best_effort();
+        self.cleanup_orphan_runtime_processes("enable_preflight")?;
         let runtime_dir = match self.prepare_runtime_engine() {
             Ok(runtime_dir) => runtime_dir,
             Err(err) => {
@@ -182,6 +185,8 @@ impl ServiceClient {
         let engine_process = match self.start_engine(&runtime_dir) {
             Ok(engine_process) => engine_process,
             Err(err) => {
+                cleanup_runtime_dir_best_effort(&runtime_dir);
+                let _ = cleanup_orphan_winws_by_runtime(&self.data_root.join("engine-runtime"));
                 self.log_debug(
                     "error",
                     "engine_start_failed",
@@ -216,6 +221,8 @@ impl ServiceClient {
             &format!("active_profiles={}", self.enabled_profiles.join(",")),
         )?;
 
+        let mut cleanup_errors = Vec::new();
+
         if let Some(mut engine) = self.engine.take() {
             let pid = engine.pid;
             if let Some(child) = engine.child.as_mut() {
@@ -228,9 +235,10 @@ impl ServiceClient {
                         )?;
                     }
                     Ok(None) => {
-                        child.kill().map_err(|source| {
-                            zapret_manager_core::io_error(&engine.runtime_dir, source)
-                        })?;
+                        if let Err(err) = child.kill() {
+                            cleanup_errors.push(format!("child kill pid={pid}: {err}"));
+                            let _ = stop_pid(pid, &engine.runtime_dir);
+                        }
                         let _ = child.wait();
                         self.log_debug("info", "engine_killed", &format!("pid={pid}"))?;
                     }
@@ -239,16 +247,36 @@ impl ServiceClient {
                     }
                 }
             } else {
-                stop_pid(pid, &engine.runtime_dir)?;
+                if let Err(err) = stop_pid(pid, &engine.runtime_dir) {
+                    cleanup_errors.push(format!("terminate pid={pid}: {err}"));
+                }
                 self.log_debug("info", "engine_terminate_sent", &format!("pid={pid}"))?;
             }
+            #[cfg(windows)]
+            if let Some(handle) = engine.process_handle.take() {
+                unsafe {
+                    CloseHandle(handle as _);
+                }
+            }
             cleanup_runtime_dir_best_effort(&engine.runtime_dir);
+        }
+
+        if let Err(err) = self.cleanup_orphan_runtime_processes("disable_all") {
+            cleanup_errors.push(err.to_string());
         }
 
         self.enabled = false;
         self.enabled_profiles.clear();
         self.log_user("Система восстановлена. Временные правила удалены.")?;
-        self.log_debug("info", "safe_revert_completed", "engine process stopped")?;
+        if cleanup_errors.is_empty() {
+            self.log_debug("info", "safe_revert_completed", "engine process stopped")?;
+        } else {
+            self.log_debug(
+                "error",
+                "safe_revert_partial",
+                &format!("cleanup_errors={}", cleanup_errors.join(" | ")),
+            )?;
+        }
         self.status()
     }
     pub fn diagnostics(&self) -> DiagnosticReport {
@@ -602,20 +630,66 @@ impl ServiceClient {
             ),
         )?;
 
-        let (pid, child) = launch_winws(&launch)?;
-        std::thread::sleep(std::time::Duration::from_millis(700));
+        let (pid, mut child, process_handle) = launch_winws(&launch)?;
+        std::thread::sleep(std::time::Duration::from_millis(1200));
+
+        if let Some(child_ref) = child.as_mut() {
+            if let Some(status) = child_ref
+                .try_wait()
+                .map_err(|source| zapret_manager_core::io_error(runtime_dir, source))?
+            {
+                append_launch_log(
+                    &launch.log_path,
+                    &format!("early_exit=true\nexit_status={status}\n"),
+                );
+                cleanup_runtime_dir_best_effort(runtime_dir);
+                return Err(ZapretError::Operation(format!(
+                    "Engine сразу завершился с кодом {:?}. Подробности: {}",
+                    status.code(),
+                    launch.log_path.display()
+                )));
+            }
+        }
 
         if !pid_is_running(pid) {
+            #[cfg(windows)]
+            let exit_code = process_handle.and_then(process_handle_exit_code);
+            #[cfg(not(windows))]
+            let exit_code: Option<u32> = None;
+            append_launch_log(
+                &launch.log_path,
+                &format!("early_exit=true\npid={pid}\nexit_code={exit_code:?}\n"),
+            );
+            cleanup_runtime_dir_best_effort(runtime_dir);
             return Err(ZapretError::Operation(format!(
-                "Engine был запущен, но процесс сразу завершился. Проверьте WinDivert/UAC/антивирус. Лог запуска: {}",
+                "Engine был запущен, но процесс сразу завершился. Exit code: {:?}. Проверьте WinDivert/UAC/антивирус. Лог запуска: {}",
+                exit_code,
                 launch.log_path.display()
             )));
         }
         Ok(EngineProcess {
             child,
+            #[cfg(windows)]
+            process_handle,
             pid,
             runtime_dir: runtime_dir.to_path_buf(),
         })
+    }
+
+    fn cleanup_orphan_runtime_processes(&self, stage: &str) -> Result<()> {
+        let runtime_root = self.data_root.join("engine-runtime");
+        let report = cleanup_orphan_winws_by_runtime(&runtime_root)?;
+        if !report.trim().is_empty() {
+            self.log_debug(
+                "info",
+                "orphan_winws_cleanup",
+                &format!(
+                    "stage={stage}, runtime_root={}, {report}",
+                    runtime_root.display()
+                ),
+            )?;
+        }
+        Ok(())
     }
     fn write_settings(&self) -> Result<()> {
         let path = self.data_root.join("settings.json");
@@ -694,11 +768,16 @@ fn build_winws_launch(bat: &Path, work_dir: &Path) -> Result<WinwsLaunch> {
     }
 
     let log_text = format!(
-        "Starting winws directly\nstrategy={}\nexe={}\nargs={}\n\n{}\n",
+        "Starting winws directly\nstrategy={}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
         bat.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("strategy"),
+        is_elevated(),
+        bin_dir.display(),
         exe_path.display(),
+        exe_path.is_file(),
+        bin_dir.join("WinDivert.dll").is_file(),
+        bin_dir.join("WinDivert64.sys").is_file(),
         parts.len(),
         expanded
     );
@@ -788,7 +867,7 @@ fn split_windows_args(command: &str) -> Vec<String> {
     args
 }
 
-fn launch_winws(launch: &WinwsLaunch) -> Result<(u32, Option<Child>)> {
+fn launch_winws(launch: &WinwsLaunch) -> Result<(u32, Option<Child>, Option<isize>)> {
     if is_elevated() {
         let stdout = OpenOptions::new()
             .create(true)
@@ -812,11 +891,16 @@ fn launch_winws(launch: &WinwsLaunch) -> Result<(u32, Option<Child>)> {
             .spawn()
             .map_err(|source| zapret_manager_core::io_error(&launch.exe_path, source))?;
         let pid = child.id();
-        return Ok((pid, Some(child)));
+        append_launch_log(&launch.log_path, &format!("spawn_mode=direct\npid={pid}\n"));
+        return Ok((pid, Some(child), None));
     }
 
-    let pid = runas_process(&launch.exe_path, &launch.work_dir, &launch.args)?;
-    Ok((pid, None))
+    let (pid, process_handle) = runas_process(&launch.exe_path, &launch.work_dir, &launch.args)?;
+    append_launch_log(
+        &launch.log_path,
+        &format!("spawn_mode=runas_uac\npid={pid}\nstdout_stderr=not available with ShellExecute runas\n"),
+    );
+    Ok((pid, None, Some(process_handle)))
 }
 
 struct EngineReadiness {
@@ -856,7 +940,7 @@ fn pid_is_running(_pid: u32) -> bool {
 }
 
 #[cfg(windows)]
-fn runas_process(exe: &Path, work_dir: &Path, args: &[String]) -> Result<u32> {
+fn runas_process(exe: &Path, work_dir: &Path, args: &[String]) -> Result<(u32, isize)> {
     let operation = wide_null("runas");
     let file = wide_null(&exe.to_string_lossy());
     let directory = wide_null(&work_dir.to_string_lossy());
@@ -894,19 +978,19 @@ fn runas_process(exe: &Path, work_dir: &Path, args: &[String]) -> Result<u32> {
     }
 
     let pid = unsafe { GetProcessId(info.hProcess) };
-    unsafe {
-        CloseHandle(info.hProcess);
-    }
     if pid == 0 {
+        unsafe {
+            CloseHandle(info.hProcess);
+        }
         return Err(ZapretError::Operation(
             "Engine запущен, но Windows не вернул PID процесса.".to_string(),
         ));
     }
-    Ok(pid)
+    Ok((pid, info.hProcess as isize))
 }
 
 #[cfg(not(windows))]
-fn runas_process(_exe: &Path, _work_dir: &Path, _args: &[String]) -> Result<u32> {
+fn runas_process(_exe: &Path, _work_dir: &Path, _args: &[String]) -> Result<(u32, isize)> {
     Err(ZapretError::Operation(
         "Elevated engine launch is supported on Windows only.".to_string(),
     ))
@@ -928,19 +1012,73 @@ fn quote_cmd_arg(arg: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-fn stop_existing_winws_best_effort() {
-    let mut command = Command::new("taskkill.exe");
-    command.args(["/IM", "winws.exe", "/T", "/F"]);
-    #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
-    let _ = command.status();
-}
-
 fn stop_pid(pid: u32, context: &Path) -> Result<()> {
     if !pid_is_running(pid) {
         return Ok(());
     }
     terminate_pid(pid, context)
+}
+
+#[cfg(windows)]
+fn process_handle_exit_code(handle: isize) -> Option<u32> {
+    let mut exit_code = 0;
+    let ok = unsafe { GetExitCodeProcess(handle as _, &mut exit_code) };
+    if ok == 0 || exit_code == STILL_ACTIVE as u32 {
+        None
+    } else {
+        Some(exit_code)
+    }
+}
+
+#[cfg(windows)]
+fn cleanup_orphan_winws_by_runtime(runtime_root: &Path) -> Result<String> {
+    if !runtime_root.exists() {
+        return Ok("runtime_root_missing=true".to_string());
+    }
+    let root = powershell_single_quote(&runtime_root.to_string_lossy().to_lowercase());
+    let script = format!(
+        "$root = '{root}'; \
+         $items = Get-CimInstance Win32_Process -Filter \"Name = 'winws.exe'\" | \
+           Where-Object {{ $_.CommandLine -and $_.CommandLine.ToLowerInvariant().Contains($root) }}; \
+         foreach ($p in $items) {{ \
+           try {{ Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop; \"stopped pid=$($p.ProcessId)\" }} \
+           catch {{ \"failed pid=$($p.ProcessId): $($_.Exception.Message)\" }} \
+         }}"
+    );
+    let mut command = Command::new("powershell.exe");
+    command.args(["-NoProfile", "-Command", &script]);
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command
+        .output()
+        .map_err(|source| zapret_manager_core::io_error(runtime_root, source))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if output.status.success() {
+        Ok(if stdout.is_empty() {
+            "orphan_count=0".to_string()
+        } else {
+            stdout
+        })
+    } else {
+        Err(ZapretError::Operation(format!(
+            "Scoped orphan cleanup failed: {stderr}"
+        )))
+    }
+}
+
+#[cfg(not(windows))]
+fn cleanup_orphan_winws_by_runtime(_runtime_root: &Path) -> Result<String> {
+    Ok("windows_only=false".to_string())
+}
+
+fn powershell_single_quote(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn append_launch_log(path: &Path, message: &str) {
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{message}");
+    }
 }
 
 #[cfg(windows)]
@@ -1000,8 +1138,12 @@ fn cleanup_old_runtime_dirs(runtime_root: &Path, keep: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::{expand_strategy_vars, extract_winws_command, split_windows_args};
-    use std::path::Path;
+    use super::{
+        build_winws_launch, expand_strategy_vars, extract_winws_command, powershell_single_quote,
+        split_windows_args,
+    };
+    use std::fs;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn extracts_direct_winws_command_from_strategy() {
@@ -1025,6 +1167,49 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         assert_eq!(args[1], "--wf-tcp=65535");
         assert!(!expanded.contains("service.bat"));
         assert!(!expanded.contains("start \"zapret: %~n0\" /min"));
+    }
+
+    #[test]
+    fn build_launch_log_contains_preflight_details() {
+        let root = test_runtime_dir("launch-log");
+        let bin = root.join("bin");
+        let lists = root.join("lists");
+        fs::create_dir_all(&bin).expect("bin");
+        fs::create_dir_all(&lists).expect("lists");
+        fs::write(bin.join("winws.exe"), b"stub").expect("winws");
+        fs::write(bin.join("WinDivert.dll"), b"stub").expect("dll");
+        fs::write(bin.join("WinDivert64.sys"), b"stub").expect("sys");
+        let bat = root.join("general.bat");
+        fs::write(
+            &bat,
+            r#"start "zapret: %~n0" /min "%BIN%winws.exe" --hostlist="%LISTS%list-general.txt""#,
+        )
+        .expect("bat");
+
+        let launch = build_winws_launch(&bat, &root).expect("launch");
+        let log = fs::read_to_string(root.join("engine-launch.log")).expect("log");
+
+        assert_eq!(launch.exe_path, bin.join("winws.exe"));
+        assert!(log.contains("work_dir="));
+        assert!(log.contains("windivert_dll=true"));
+        assert!(log.contains("windivert_sys=true"));
+        assert!(log.contains("argv=1"));
+        assert!(log.contains("command="));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn powershell_quote_escapes_single_quotes() {
+        assert_eq!(powershell_single_quote("C:\\A'B"), "C:\\A''B");
+    }
+
+    fn test_runtime_dir(name: &str) -> PathBuf {
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("zapret-manager-{name}-{suffix}"))
     }
 }
 

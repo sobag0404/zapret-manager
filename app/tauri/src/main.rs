@@ -9,7 +9,7 @@ use commands::{
 };
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WindowEvent};
+use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 use zapret_manager_core::RuntimeStatus;
 
 fn main() {
@@ -46,8 +46,13 @@ fn main() {
             get_settings,
             save_settings
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Zapret Manager");
+        .build(tauri::generate_context!())
+        .expect("failed to build Zapret Manager")
+        .run(|app, event| {
+            if matches!(event, RunEvent::ExitRequested { .. }) {
+                cleanup_before_exit(app);
+            }
+        });
 }
 
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -55,7 +60,7 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let toggle = MenuItem::with_id(app, "toggle", "Включить / Выключить", true, None::<&str>)?;
     let diagnostics = MenuItem::with_id(app, "diagnostics", "Диагностика", true, None::<&str>)?;
     let recovery = MenuItem::with_id(app, "recovery", "Восстановление", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Закрыть", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &toggle, &diagnostics, &recovery, &quit])?;
     let _tray = TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().expect("default app icon").clone())
@@ -75,10 +80,7 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             "open" | "diagnostics" | "recovery" => show_main_window(app),
             "toggle" => handle_tray_toggle(app),
             "quit" => {
-                if let Ok(mut guard) = service_client::client().lock() {
-                    let _ = guard.disable_all();
-                }
-                set_tray_status(app, false);
+                cleanup_before_exit(app);
                 app.exit(0);
             }
             _ => {}
@@ -97,6 +99,13 @@ fn setup_close_to_tray(app: &AppHandle) {
             }
         });
     }
+}
+
+fn cleanup_before_exit(app: &AppHandle) {
+    if let Ok(mut guard) = service_client::client().lock() {
+        let _ = guard.disable_all();
+    }
+    set_tray_status(app, false);
 }
 
 pub(crate) fn set_tray_status(app: &AppHandle, running: bool) {
