@@ -155,7 +155,7 @@
                   },
                   {
                       "relative_path":  "lists/ipset-all.txt",
-                      "sha256":  "19123a22bf1108815c07bda3cda8df282b30bd63e4939949928969c0fd195873",
+                      "sha256":  "f237ce13aabf89deeccde6db5a598cfe280dfdad87d0e9534c27ee9c014d5a86",
                       "executable":  false
                   },
                   {
@@ -185,7 +185,7 @@
                   },
                   {
                       "relative_path":  "lists/list-general-user.txt",
-                      "sha256":  "45c000b6afc65805f6ab2b757498f7f5626252f8e9f5fa807b8c3330d603eaa7",
+                      "sha256":  "691b6e5cdd8968db0a7c02c3ee3bc0fd2a7aa7c0aef73f4e281918f341ce920c",
                       "executable":  false
                   },
                   {

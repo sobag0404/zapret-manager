@@ -352,6 +352,16 @@ impl ServiceClient {
                 },
                 "Telegram зависит от провайдера; web.telegram.org добавлен в пользовательский hostlist.",
             ),
+            diag(
+                "whatsapp",
+                "WhatsApp доступен",
+                if self.enabled {
+                    DiagnosticStatus::Warning
+                } else {
+                    DiagnosticStatus::Skipped
+                },
+                "WhatsApp Web и desktop добавлены в общий hostlist. Если включён VPN, он может перехватывать трафик раньше engine.",
+            ),
             DiagnosticItem {
                 id: "vpn".to_string(),
                 title: "Совместимость с VPN".to_string(),
@@ -666,8 +676,22 @@ fn strategy_bat_file(strategy: &str) -> &'static str {
         "alt" => "general (ALT).bat",
         "alt2" => "general (ALT2).bat",
         "alt3" => "general (ALT3).bat",
+        "alt4" => "general (ALT4).bat",
+        "alt5" => "general (ALT5).bat",
+        "alt6" => "general (ALT6).bat",
+        "alt7" => "general (ALT7).bat",
+        "alt8" => "general (ALT8).bat",
+        "alt9" => "general (ALT9).bat",
+        "alt10" => "general (ALT10).bat",
+        "alt11" => "general (ALT11).bat",
+        "alt12" => "general (ALT12).bat",
         "simple_fake" => "general (SIMPLE FAKE).bat",
+        "simple_fake_alt" => "general (SIMPLE FAKE ALT).bat",
+        "simple_fake_alt2" => "general (SIMPLE FAKE ALT2).bat",
         "fake_tls_auto" => "general (FAKE TLS AUTO).bat",
+        "fake_tls_auto_alt" => "general (FAKE TLS AUTO ALT).bat",
+        "fake_tls_auto_alt2" => "general (FAKE TLS AUTO ALT2).bat",
+        "fake_tls_auto_alt3" => "general (FAKE TLS AUTO ALT3).bat",
         _ => "general.bat",
     }
 }
@@ -739,7 +763,11 @@ struct EngineReadiness {
 
 fn normalized_engine_strategy(strategy: &str) -> String {
     match strategy {
-        "alt" | "alt2" | "alt3" | "simple_fake" | "fake_tls_auto" => strategy.to_string(),
+        "alt" | "alt2" | "alt3" | "alt4" | "alt5" | "alt6" | "alt7" | "alt8" | "alt9" | "alt10"
+        | "alt11" | "alt12" | "simple_fake" | "simple_fake_alt" | "simple_fake_alt2"
+        | "fake_tls_auto" | "fake_tls_auto_alt" | "fake_tls_auto_alt2" | "fake_tls_auto_alt3" => {
+            strategy.to_string()
+        }
         _ => "general".to_string(),
     }
 }
@@ -946,7 +974,8 @@ fn profile_order(id: &str) -> usize {
         "discord" => 0,
         "youtube" => 1,
         "telegram" => 2,
-        "common" => 3,
+        "whatsapp" => 3,
+        "common" => 4,
         _ => 99,
     }
 }

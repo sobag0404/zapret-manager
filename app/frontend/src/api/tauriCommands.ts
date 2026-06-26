@@ -69,6 +69,7 @@ const mockProfiles: Profile[] = [
   profile("discord", "Discord", "Discord desktop, web and voice checks", "medium"),
   profile("youtube", "YouTube", "YouTube web and video checks", "medium"),
   profile("telegram", "Telegram", "Telegram desktop and web checks", "medium"),
+  profile("whatsapp", "WhatsApp", "WhatsApp desktop, web and voice checks", "medium"),
   profile("common", "Общий режим", "General safe profile", "low"),
 ];
 
@@ -138,6 +139,7 @@ function mockDiagnostics(): DiagnosticReport {
     diag("discord", "Discord доступен", "ok", "Действий не требуется."),
     diag("youtube", "YouTube доступен", "ok", "Действий не требуется."),
     diag("telegram", "Telegram доступен", "ok", "Действий не требуется."),
+    diag("whatsapp", "WhatsApp доступен", "ok", "Действий не требуется."),
     diag("vpn", "Конфликт с VPN", "warning", "Если VPN включён, safety mode не даст запустить режим без явного разрешения."),
     diag("proxy", "Нет конфликта с proxy", "ok", "Proxy не менялся."),
     diag("antivirus", "Нет конфликта с антивирусом", "skipped", "Антивирус не опрашивается."),
@@ -200,7 +202,7 @@ export const tauriCommands = {
   runServiceConnectivityTests: () =>
     call<DiagnosticReport>("run_service_connectivity_tests", undefined, () => {
       const report = mockDiagnostics();
-      return { overall: "ok", items: report.items.filter((item) => ["internet", "discord", "youtube", "telegram"].includes(item.id)) };
+      return { overall: "ok", items: report.items.filter((item) => ["internet", "discord", "youtube", "telegram", "whatsapp"].includes(item.id)) };
     }),
   readUserLogs: () => call<string>("read_user_logs", undefined, () => userLog),
   exportDebugLogs: () => call<string>("export_debug_logs", undefined, () => "logs/debug-export.jsonl"),

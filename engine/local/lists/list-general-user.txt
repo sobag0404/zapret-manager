@@ -6,3 +6,14 @@ web.telegram.org
 api.telegram.org
 desktop.telegram.org
 updates.tdesktop.com
+tdesktop.com
+telesco.pe
+telegram-cdn.org
+cdn-telegram.org
+whatsapp.com
+web.whatsapp.com
+whatsapp.net
+static.whatsapp.net
+mmg.whatsapp.net
+media.whatsapp.net
+wa.me

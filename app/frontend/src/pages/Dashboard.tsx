@@ -4,12 +4,26 @@ import { StatusCard } from "../components/StatusCard";
 import { appActions, useAppStore } from "../store/appStore";
 
 const engineStrategies = [
-  { id: "general", name: "General", detail: "Основная Flowseal strategy" },
-  { id: "alt", name: "ALT", detail: "Fake + fakedsplit" },
-  { id: "alt2", name: "ALT2", detail: "Multisplit seqovl 652" },
-  { id: "alt3", name: "ALT3", detail: "HostFakeSplit" },
-  { id: "simple_fake", name: "Simple Fake", detail: "Fake TLS без split" },
-  { id: "fake_tls_auto", name: "Fake TLS Auto", detail: "Auto fake TLS" },
+  { id: "general", name: "1 General", detail: "Базовая Flowseal strategy" },
+  { id: "alt", name: "2 ALT", detail: "Fake + fakedsplit" },
+  { id: "alt2", name: "3 ALT2", detail: "Multisplit seqovl 652" },
+  { id: "alt3", name: "4 ALT3", detail: "HostFakeSplit" },
+  { id: "simple_fake", name: "5 Simple Fake", detail: "Fake TLS без split" },
+  { id: "fake_tls_auto", name: "6 Fake TLS Auto", detail: "Auto fake TLS" },
+  { id: "alt4", name: "7 ALT4", detail: "Fake + multisplit badseq" },
+  { id: "alt5", name: "8 ALT5", detail: "Alternative UDP/TCP profile" },
+  { id: "alt6", name: "9 ALT6", detail: "Multisplit seqovl 681" },
+  { id: "alt7", name: "10 ALT7", detail: "Multisplit sniext" },
+  { id: "alt8", name: "11 ALT8", detail: "Fake TLS mod none" },
+  { id: "alt9", name: "12 ALT9", detail: "HostFakeSplit variants" },
+  { id: "alt10", name: "13 ALT10", detail: "Fake TLS alt pattern" },
+  { id: "alt11", name: "14 ALT11", detail: "Alternative split profile" },
+  { id: "alt12", name: "15 ALT12", detail: "Alternative split profile" },
+  { id: "simple_fake_alt", name: "16 Simple Fake ALT", detail: "Simple fake badseq" },
+  { id: "simple_fake_alt2", name: "17 Simple Fake ALT2", detail: "Simple fake ts" },
+  { id: "fake_tls_auto_alt", name: "18 Fake TLS Auto ALT", detail: "Auto fake TLS badseq" },
+  { id: "fake_tls_auto_alt2", name: "19 Fake TLS Auto ALT2", detail: "Auto fake TLS multisplit" },
+  { id: "fake_tls_auto_alt3", name: "20 Fake TLS Auto ALT3", detail: "Auto fake TLS ts" },
 ];
 
 export function Dashboard() {

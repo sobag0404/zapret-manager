@@ -103,14 +103,6 @@ export const appActions = {
         userLog,
         settings,
       });
-      try {
-        const autoUpdateStatus = await tauriCommands.applyStrategyUpdate();
-        setState({ updateStatus: autoUpdateStatus });
-      } catch (error) {
-        setState({
-          error: `Ошибка автообновления стратегий: ${error instanceof Error ? error.message : String(error)}`,
-        });
-      }
     });
   },
   setProfileSelected: async (id: string, enabled: boolean) => {

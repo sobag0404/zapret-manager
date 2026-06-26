@@ -56,6 +56,7 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Закрыть", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &toggle, &diagnostics, &recovery, &quit])?;
     let _tray = TrayIconBuilder::with_id("main")
+        .icon(app.default_window_icon().expect("default app icon").clone())
         .menu(&menu)
         .tooltip("Zapret Manager: отключено")
         .on_tray_icon_event(|tray, event| {

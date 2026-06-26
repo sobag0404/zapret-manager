@@ -55,8 +55,22 @@ export function Settings() {
             <option value="alt">ALT</option>
             <option value="alt2">ALT2</option>
             <option value="alt3">ALT3</option>
+            <option value="alt4">ALT4</option>
+            <option value="alt5">ALT5</option>
+            <option value="alt6">ALT6</option>
+            <option value="alt7">ALT7</option>
+            <option value="alt8">ALT8</option>
+            <option value="alt9">ALT9</option>
+            <option value="alt10">ALT10</option>
+            <option value="alt11">ALT11</option>
+            <option value="alt12">ALT12</option>
             <option value="simple_fake">Simple Fake</option>
+            <option value="simple_fake_alt">Simple Fake ALT</option>
+            <option value="simple_fake_alt2">Simple Fake ALT2</option>
             <option value="fake_tls_auto">Fake TLS Auto</option>
+            <option value="fake_tls_auto_alt">Fake TLS Auto ALT</option>
+            <option value="fake_tls_auto_alt2">Fake TLS Auto ALT2</option>
+            <option value="fake_tls_auto_alt3">Fake TLS Auto ALT3</option>
           </select>
         </label>
         <label>

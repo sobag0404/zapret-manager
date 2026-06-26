@@ -1,0 +1,13 @@
+{
+  "id": "whatsapp",
+  "name": "WhatsApp",
+  "description": "WhatsApp profile",
+  "status": "stable",
+  "version": "1.0.0",
+  "targets": ["desktop_app", "web", "voice"],
+  "health_checks": ["dns", "tcp", "https"],
+  "engine_profile_ref": "whatsapp-default",
+  "fallback_profiles": ["whatsapp-safe"],
+  "risk_level": "medium",
+  "notes": "No low-level strategy values in initial scaffold"
+}

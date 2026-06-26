@@ -37,7 +37,7 @@ pub fn run_service_connectivity_tests() -> std::result::Result<DiagnosticReport,
             .filter(|item| {
                 matches!(
                     item.id.as_str(),
-                    "discord" | "youtube" | "telegram" | "internet"
+                    "discord" | "youtube" | "telegram" | "whatsapp" | "internet"
                 )
             })
             .collect(),

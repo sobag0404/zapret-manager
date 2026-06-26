@@ -36,6 +36,17 @@
       "experimental_requires_consent": false
     },
     {
+      "id": "whatsapp-stable",
+      "profile_id": "whatsapp",
+      "channel": "stable",
+      "version": "1.0.0",
+      "updated_at": "2026-06-26T00:00:00Z",
+      "path": "stable/whatsapp.json",
+      "sha256": "0940edae809879ffb6deb2dad9ff18bc45f492949c15c409dec4c9c6779a79b1",
+      "trusted_source": "file:///local/strategies/",
+      "experimental_requires_consent": false
+    },
+    {
       "id": "common-stable",
       "profile_id": "common",
       "channel": "stable",
@@ -76,6 +87,17 @@
       "updated_at": "2026-01-01T00:00:00Z",
       "path": "experimental/telegram.json",
       "sha256": "fb0789ca94f619f4a4f32a329d5538d18164aeea3dba5e5b5114ffe6fefda01c",
+      "trusted_source": "file:///local/strategies/",
+      "experimental_requires_consent": true
+    },
+    {
+      "id": "whatsapp-experimental",
+      "profile_id": "whatsapp",
+      "channel": "experimental",
+      "version": "1.0.0",
+      "updated_at": "2026-06-26T00:00:00Z",
+      "path": "experimental/whatsapp.json",
+      "sha256": "c7ba7ca90594b32b3f69a6f55a683fb9660e83b62ad679a589ae3822b631e861",
       "trusted_source": "file:///local/strategies/",
       "experimental_requires_consent": true
     },
