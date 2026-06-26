@@ -13,12 +13,7 @@ export function ProfileCard({ profile, selected, loading, onToggle }: ProfileCar
     <article className={`profile-card ${selected ? "is-active" : ""}`}>
       <header>
         <label className="profile-check">
-          <input
-            checked={selected}
-            disabled={loading}
-            onChange={(event) => onToggle(profile.id, event.target.checked)}
-            type="checkbox"
-          />
+          <input checked={selected} disabled={loading} onChange={(event) => onToggle(profile.id, event.target.checked)} type="checkbox" />
           <span>
             <h3>{profile.name}</h3>
             <p>{profile.description}</p>

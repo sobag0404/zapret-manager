@@ -1,6 +1,10 @@
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
+
 export type RuntimeStatus = "disabled" | "starting" | "running" | "stopping" | "error";
 export type ProfileStatus = "stable" | "experimental";
 export type DiagnosticStatus = "ok" | "warning" | "error" | "skipped";
+export type UpdateState = "idle" | "checking" | "available" | "not_available" | "installing" | "error";
 
 export interface Profile {
   id: string;
@@ -44,6 +48,15 @@ export interface StrategyUpdateStatus {
   message: string;
 }
 
+export interface AppUpdateStatus {
+  state: UpdateState;
+  current_version: string;
+  available_version?: string | null;
+  date?: string | null;
+  notes?: string | null;
+  message: string;
+}
+
 export interface AppSettings {
   autostart: boolean;
   strategy_channel: string;
@@ -63,14 +76,16 @@ declare global {
   }
 }
 
+const APP_VERSION = "1.2.0";
 const now = () => new Date().toISOString();
+let pendingAppUpdate: Update | null = null;
 
 const mockProfiles: Profile[] = [
   profile("discord", "Discord", "Discord desktop, web and voice checks", "medium"),
   profile("youtube", "YouTube", "YouTube web and video checks", "medium"),
   profile("telegram", "Telegram", "Telegram desktop and web checks", "medium"),
   profile("whatsapp", "WhatsApp", "WhatsApp desktop, web and voice checks", "medium"),
-  profile("common", "Общий режим", "General safe profile", "low"),
+  profile("common", "Общий режим", "Общий профиль для всех поддерживаемых сервисов", "low"),
 ];
 
 let mockStatus: AppStatus = {
@@ -104,7 +119,7 @@ function profile(id: string, name: string, description: string, risk_level: Prof
     engine_profile_ref: `${id}-default`,
     fallback_profiles: [`${id}-safe`],
     risk_level,
-    notes: "No low-level strategy values in initial scaffold",
+    notes: "Без низкоуровневых параметров в профиле. Реальная стратегия выбирается отдельно.",
   };
 }
 
@@ -124,9 +139,19 @@ const addLog = (message: string) => {
   userLog += `${new Date().toLocaleTimeString()} - ${message}\n`;
 };
 
+function diag(id: string, title: string, status: DiagnosticStatus, action: string): DiagnosticItem {
+  return {
+    id,
+    title,
+    status,
+    problem: status === "ok" ? null : `Проблема: ${title}.`,
+    action,
+  };
+}
+
 function mockDiagnostics(): DiagnosticReport {
   const items: DiagnosticItem[] = [
-    diag("admin", "Права администратора", "warning", "Запустите приложение от имени администратора для запуска WinDivert."),
+    diag("admin", "Права администратора", "warning", "Для запуска WinDivert нажмите правой кнопкой по приложению и выберите запуск от администратора."),
     diag("service_installed", "Служба установлена", "ok", "Действий не требуется."),
     diag("service_running", "Служба запущена", "ok", "Действий не требуется."),
     diag("engine_found", "Engine найден", "ok", "Engine manifest найден."),
@@ -140,9 +165,9 @@ function mockDiagnostics(): DiagnosticReport {
     diag("youtube", "YouTube доступен", "ok", "Действий не требуется."),
     diag("telegram", "Telegram доступен", "ok", "Действий не требуется."),
     diag("whatsapp", "WhatsApp доступен", "ok", "Действий не требуется."),
-    diag("vpn", "Конфликт с VPN", "warning", "Если VPN включён, safety mode не даст запустить режим без явного разрешения."),
-    diag("proxy", "Нет конфликта с proxy", "ok", "Proxy не менялся."),
-    diag("antivirus", "Нет конфликта с антивирусом", "skipped", "Антивирус не опрашивается."),
+    diag("vpn", "Конфликт с VPN", "warning", "Если VPN включён, используйте разрешённый режим совместимости в настройках."),
+    diag("proxy", "Конфликт с proxy не найден", "ok", "Proxy не менялся."),
+    diag("antivirus", "Антивирус", "skipped", "Автоматически не опрашивается. Если запуск блокируется, добавьте папку приложения в исключения."),
     diag("logs", "Папка логов доступна", "ok", "Действий не требуется."),
     diag("snapshot", "Snapshot можно создать", "ok", "Действий не требуется."),
     diag("revert", "Revert можно выполнить", "ok", "Действий не требуется."),
@@ -151,13 +176,12 @@ function mockDiagnostics(): DiagnosticReport {
   return { overall: "warning", items };
 }
 
-function diag(id: string, title: string, status: DiagnosticStatus, action: string): DiagnosticItem {
+async function checkAppUpdateFallback(): Promise<AppUpdateStatus> {
+  pendingAppUpdate = null;
   return {
-    id,
-    title,
-    status,
-    problem: status === "ok" ? null : `Проблема: ${title}.`,
-    action,
+    state: "not_available",
+    current_version: APP_VERSION,
+    message: "Dev-режим: updater доступен только в установленном Tauri-приложении.",
   };
 }
 
@@ -208,15 +232,15 @@ export const tauriCommands = {
   exportDebugLogs: () => call<string>("export_debug_logs", undefined, () => "logs/debug-export.jsonl"),
   checkStrategyUpdates: () =>
     call<StrategyUpdateStatus>("check_strategy_updates", undefined, () => ({
-      app_version: "0.1.0",
+      app_version: APP_VERSION,
       strategy_version: "1.0.0",
       last_checked: now(),
       channel: "stable",
-      message: "Локальный manifest стратегий проверен. Обновления применяются отдельно от приложения.",
+      message: "Локальный manifest стратегий проверен. Стратегии обновляются отдельно от приложения.",
     })),
   applyStrategyUpdate: () =>
     call<StrategyUpdateStatus>("apply_strategy_update", undefined, () => ({
-      app_version: "0.1.0",
+      app_version: APP_VERSION,
       strategy_version: "1.0.0",
       last_checked: now(),
       channel: "stable",
@@ -224,12 +248,69 @@ export const tauriCommands = {
     })),
   rollbackStrategyUpdate: () =>
     call<StrategyUpdateStatus>("rollback_strategy_update", undefined, () => ({
-      app_version: "0.1.0",
+      app_version: APP_VERSION,
       strategy_version: "1.0.0",
       last_checked: now(),
       channel: "stable",
       message: "Rollback стратегий выполнен из последнего backup.",
     })),
+  checkAppUpdate: async (): Promise<AppUpdateStatus> => {
+    if (!invoke()) return checkAppUpdateFallback();
+    try {
+      const update = await check();
+      pendingAppUpdate = update;
+      if (!update) {
+        return {
+          state: "not_available",
+          current_version: APP_VERSION,
+          message: "Установлена последняя стабильная версия.",
+        };
+      }
+      return {
+        state: "available",
+        current_version: update.currentVersion,
+        available_version: update.version,
+        date: update.date ?? null,
+        notes: update.body ?? null,
+        message: `Доступна версия ${update.version}. Установка запускается только вручную.`,
+      };
+    } catch (error) {
+      pendingAppUpdate = null;
+      return {
+        state: "error",
+        current_version: APP_VERSION,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+  installAppUpdate: async (): Promise<AppUpdateStatus> => {
+    if (!invoke()) return checkAppUpdateFallback();
+    if (!pendingAppUpdate) {
+      return {
+        state: "error",
+        current_version: APP_VERSION,
+        message: "Сначала проверьте обновления приложения.",
+      };
+    }
+    try {
+      await tauriCommands.disableAll();
+      await pendingAppUpdate.downloadAndInstall();
+      await relaunch();
+      return {
+        state: "installing",
+        current_version: pendingAppUpdate.currentVersion,
+        available_version: pendingAppUpdate.version,
+        message: "Обновление установлено. Приложение перезапускается.",
+      };
+    } catch (error) {
+      return {
+        state: "error",
+        current_version: pendingAppUpdate.currentVersion,
+        available_version: pendingAppUpdate.version,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
   repairDriver: () => call<string>("repair_driver", undefined, () => "WinDivert проверяется при запуске engine."),
   repairService: () => call<string>("repair_service", undefined, () => "Локальный backend доступен."),
   restartEngine: () => call<string>("restart_engine", undefined, () => "Остановите и снова включите режим."),

@@ -39,10 +39,11 @@ export function Dashboard() {
         <div>
           <span className="eyebrow">Zapret Manager</span>
           <h1>Статус: {status?.message ?? "Загрузка"}</h1>
-          <p>Локальное управление профилями через службу. GUI не запускает engine напрямую.</p>
+          <p>Локальное управление профилями через backend. Перед включением создаётся snapshot, при выключении выполняется безопасный откат.</p>
         </div>
         <MainToggle status={status?.status ?? "disabled"} loading={loading.toggle} onToggle={appActions.toggleEnabled} />
       </section>
+
       <section className="dashboard-section">
         <div className="section-heading">
           <span className="eyebrow">Режимы</span>
@@ -53,28 +54,25 @@ export function Dashboard() {
         ) : (
           <div className="mode-grid">
             {profiles.map((profile) => {
-            const selected = selectedProfiles.includes(profile.id);
-            return (
-              <label className={`mode-option ${selected ? "is-selected" : ""}`} key={profile.id}>
-                <input
-                  checked={selected}
-                  onChange={(event) => appActions.setProfileSelected(profile.id, event.target.checked)}
-                  type="checkbox"
-                />
-                <span>
-                  <strong>{profile.name}</strong>
-                  <small>{profile.status} · {profile.version} · риск {profile.risk_level}</small>
-                </span>
-              </label>
-            );
+              const selected = selectedProfiles.includes(profile.id);
+              return (
+                <label className={`mode-option ${selected ? "is-selected" : ""}`} key={profile.id}>
+                  <input checked={selected} onChange={(event) => appActions.setProfileSelected(profile.id, event.target.checked)} type="checkbox" />
+                  <span>
+                    <strong>{profile.name}</strong>
+                    <small>{profile.status} · {profile.version} · риск {profile.risk_level}</small>
+                  </span>
+                </label>
+              );
             })}
           </div>
         )}
       </section>
+
       <section className="dashboard-section">
         <div className="section-heading">
           <span className="eyebrow">Стратегия engine</span>
-          <h2>Если не заработало, переключите вариант и включите снова</h2>
+          <h2>Если сервис не открылся, выключите режим, выберите другую стратегию и включите снова</h2>
         </div>
         <div className="strategy-grid">
           {engineStrategies.map((strategy) => {
@@ -93,8 +91,9 @@ export function Dashboard() {
             );
           })}
         </div>
-        {running && <p className="hint-line">Чтобы сменить стратегию, сначала нажмите “Выключить”.</p>}
+        {running && <p className="hint-line">Чтобы сменить стратегию, сначала нажмите "Выключить".</p>}
       </section>
+
       <section className="status-grid">
         <StatusCard
           icon={ShieldCheck}

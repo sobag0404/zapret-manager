@@ -14,7 +14,9 @@ use zapret_manager_core::RuntimeStatus;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             setup_close_to_tray(app.handle());
             setup_tray(app.handle())?;

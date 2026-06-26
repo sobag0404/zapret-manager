@@ -16,9 +16,12 @@ export function Diagnostics() {
             <Wifi size={17} aria-hidden="true" />
             DNS
           </button>
+          <button className="secondary-button" disabled={loading.connectivity} onClick={appActions.runConnectivity}>
+            Проверить доступность
+          </button>
           <button className="primary-button" disabled={loading.diagnostics} onClick={appActions.runDiagnostics}>
             <PlayCircle size={17} aria-hidden="true" />
-            Проверить
+            Проверить всё
           </button>
         </div>
       </header>

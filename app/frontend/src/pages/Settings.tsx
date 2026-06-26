@@ -28,11 +28,8 @@ export function Settings() {
           Сохранить
         </button>
       </header>
+
       <section className="settings-grid">
-        <label className="switch-row">
-          <input checked={draft.autostart} onChange={(event) => setDraft({ ...draft, autostart: event.target.checked })} type="checkbox" />
-          <span>Запускать вместе с Windows</span>
-        </label>
         <label className="switch-row">
           <input checked={draft.safety_mode} onChange={(event) => setDraft({ ...draft, safety_mode: event.target.checked })} type="checkbox" />
           <span>Режим безопасности</span>
@@ -73,14 +70,9 @@ export function Settings() {
             <option value="fake_tls_auto_alt3">Fake TLS Auto ALT3</option>
           </select>
         </label>
-        <label>
-          Путь к логам
-          <input value={draft.logs_path} onChange={(event) => setDraft({ ...draft, logs_path: event.target.value })} />
-        </label>
-        <label>
-          Путь к engine
-          <input value={draft.engine_path} onChange={(event) => setDraft({ ...draft, engine_path: event.target.value })} />
-        </label>
+        <div className="settings-note wide-field">
+          Автостарт, ручной путь к engine и ручной путь к логам скрыты из v1.2: эти параметры останутся выключенными, пока не будут реализованы полностью.
+        </div>
       </section>
     </form>
   );

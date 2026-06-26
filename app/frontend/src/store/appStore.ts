@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import {
   AppSettings,
   AppStatus,
+  AppUpdateStatus,
   DiagnosticItem,
   Profile,
   StrategyUpdateStatus,
@@ -15,7 +16,8 @@ interface AppState {
   profiles: Profile[];
   selectedProfiles: string[];
   diagnostics: DiagnosticItem[];
-  updateStatus: StrategyUpdateStatus | null;
+  strategyUpdateStatus: StrategyUpdateStatus | null;
+  appUpdateStatus: AppUpdateStatus | null;
   userLog: string;
   exportPath: string | null;
   settings: AppSettings | null;
@@ -29,7 +31,8 @@ const initialState: AppState = {
   profiles: [],
   selectedProfiles: [],
   diagnostics: [],
-  updateStatus: null,
+  strategyUpdateStatus: null,
+  appUpdateStatus: null,
   userLog: "",
   exportPath: null,
   settings: null,
@@ -82,11 +85,23 @@ function nextSelectedProfiles(id: string, enabled: boolean): string[] {
   return selected;
 }
 
+function defaultSettings(): AppSettings {
+  return {
+    autostart: false,
+    strategy_channel: "stable",
+    engine_strategy: "general",
+    logs_path: "logs",
+    engine_path: "engine/local",
+    safety_mode: true,
+    allow_vpn_conflict: true,
+  };
+}
+
 export const appActions = {
   setPage: (selectedPage: PageId) => setState({ selectedPage }),
   initialize: async () => {
     await runAction("initialize", async () => {
-      const [status, profiles, diagnostics, updateStatus, userLog, settings] = await Promise.all([
+      const [status, profiles, diagnostics, strategyUpdateStatus, userLog, settings] = await Promise.all([
         tauriCommands.getAppStatus(),
         tauriCommands.listProfiles(),
         tauriCommands.runDiagnostics(),
@@ -99,7 +114,7 @@ export const appActions = {
         profiles,
         selectedProfiles: status.enabled_profiles,
         diagnostics: diagnostics.items,
-        updateStatus,
+        strategyUpdateStatus,
         userLog,
         settings,
       });
@@ -110,7 +125,7 @@ export const appActions = {
   },
   toggleEnabled: async () => {
     if (state.status?.status !== "running" && state.selectedProfiles.length === 0) {
-      setState({ error: "Выберите хотя бы один режим: Discord, YouTube, Telegram или Общий." });
+      setState({ error: "Выберите хотя бы один режим: Discord, YouTube, Telegram, WhatsApp или Общий." });
       return;
     }
     const status = await runAction("toggle", () => tauriCommands.toggleEnabled(state.selectedProfiles));
@@ -149,17 +164,25 @@ export const appActions = {
     setState({ status });
     await appActions.refreshLogs();
   },
-  checkUpdates: async () => {
-    const updateStatus = await runAction("updates", tauriCommands.checkStrategyUpdates);
-    if (updateStatus) setState({ updateStatus });
+  checkStrategyUpdates: async () => {
+    const strategyUpdateStatus = await runAction("strategy-updates", tauriCommands.checkStrategyUpdates);
+    if (strategyUpdateStatus) setState({ strategyUpdateStatus });
   },
-  applyUpdate: async () => {
-    const updateStatus = await runAction("apply-update", tauriCommands.applyStrategyUpdate);
-    if (updateStatus) setState({ updateStatus });
+  applyStrategyUpdate: async () => {
+    const strategyUpdateStatus = await runAction("apply-strategy-update", tauriCommands.applyStrategyUpdate);
+    if (strategyUpdateStatus) setState({ strategyUpdateStatus });
   },
-  rollbackUpdate: async () => {
-    const updateStatus = await runAction("rollback-update", tauriCommands.rollbackStrategyUpdate);
-    if (updateStatus) setState({ updateStatus });
+  rollbackStrategyUpdate: async () => {
+    const strategyUpdateStatus = await runAction("rollback-strategy-update", tauriCommands.rollbackStrategyUpdate);
+    if (strategyUpdateStatus) setState({ strategyUpdateStatus });
+  },
+  checkAppUpdate: async () => {
+    const appUpdateStatus = await runAction("app-update-check", tauriCommands.checkAppUpdate);
+    if (appUpdateStatus) setState({ appUpdateStatus });
+  },
+  installAppUpdate: async () => {
+    const appUpdateStatus = await runAction("app-update-install", tauriCommands.installAppUpdate);
+    if (appUpdateStatus) setState({ appUpdateStatus });
   },
   refreshLogs: async () => {
     const userLog = await runAction("logs", tauriCommands.readUserLogs);
@@ -174,15 +197,7 @@ export const appActions = {
     if (saved) setState({ settings: saved });
   },
   setEngineStrategy: async (engine_strategy: string) => {
-    const nextSettings = { ...(state.settings ?? {
-      autostart: false,
-      strategy_channel: "stable",
-      engine_strategy: "general",
-      logs_path: "logs",
-      engine_path: "engine/local",
-      safety_mode: true,
-      allow_vpn_conflict: true,
-    }), engine_strategy };
+    const nextSettings = { ...(state.settings ?? defaultSettings()), engine_strategy };
     setState({ settings: nextSettings, error: null });
     const saved = await runAction("settings", () => tauriCommands.saveSettings(nextSettings));
     if (saved) setState({ settings: saved });

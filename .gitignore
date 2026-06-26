@@ -66,6 +66,7 @@ artifacts/
 *.sig
 *.timestamp
 signing/
+.tauri-updater/
 
 # Temporary files
 tmp/

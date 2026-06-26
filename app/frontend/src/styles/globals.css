@@ -783,6 +783,15 @@ main {
   grid-column: 1 / -1;
 }
 
+.settings-note {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafb;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .empty-state {
   margin: 0;
   padding: 24px;

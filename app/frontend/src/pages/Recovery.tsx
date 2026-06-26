@@ -2,11 +2,11 @@ import { RecoveryAction } from "../components/RecoveryAction";
 import { appActions, useAppStore } from "../store/appStore";
 
 const actions = [
-  ["repair_driver", "Проверить драйвер", "Mock-проверка: драйвер в v1 не используется."],
-  ["repair_service", "Переустановить службу", "Проверить регистрацию mock-службы."],
-  ["restart_engine", "Остановить engine", "Остановить mock-адаптер engine."],
-  ["disable_all", "Удалить временные правила", "Выполнить безопасный mock cleanup."],
-  ["restore_snapshot", "Восстановить состояние системы", "Применить последний snapshot."],
+  ["repair_driver", "Проверить драйвер", "Проверить, не блокируется ли запуск WinDivert правами или антивирусом."],
+  ["restart_engine", "Остановить engine", "Остановить активный engine и проверить, что процессы не остались висеть."],
+  ["disable_all", "Удалить временные правила", "Выполнить безопасную очистку временных правил и состояния."],
+  ["create_snapshot", "Создать snapshot", "Сохранить текущее состояние перед ручными действиями."],
+  ["restore_snapshot", "Восстановить состояние системы", "Применить последний snapshot и вернуть настройки."],
   ["emergency_disable", "Аварийно отключить всё", "Остановить engine, убрать временные правила и восстановить snapshot."],
 ] as const;
 
@@ -17,7 +17,7 @@ export function Recovery() {
       <header className="page-header">
         <div>
           <span className="eyebrow">Восстановление</span>
-          <h1>Восстановление</h1>
+          <h1>Repair flow</h1>
         </div>
       </header>
       <section className="list-panel">

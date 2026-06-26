@@ -11,7 +11,7 @@ interface LogViewerProps {
 export function LogViewer({ log, exportPath, loading, onRefresh, onExport }: LogViewerProps) {
   return (
     <section className="log-viewer">
-      <div className="button-row">
+      <div className="button-row log-toolbar">
         <button className="secondary-button" disabled={loading} onClick={onRefresh}>Обновить</button>
         <button className="primary-button" disabled={loading} onClick={onExport}>
           <Download size={16} aria-hidden="true" />
