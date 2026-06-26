@@ -56,15 +56,12 @@ jobs:
       - name: Test Rust workspace
         run: cargo test --workspace --all-features
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version 2.11.2 --locked
-
       - name: Build Windows installer
         working-directory: app/tauri
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: cargo tauri build --config tauri.release.conf.json
+        run: ..\..\node_modules\.bin\tauri.cmd build --config tauri.release.conf.json
 
       - name: Package release
         shell: pwsh

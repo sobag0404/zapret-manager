@@ -13,6 +13,7 @@
     "verify": "corepack pnpm test && corepack pnpm build && cargo test --workspace"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "2.11.2",
     "ajv": "^8.17.1",
     "vitest": "^3.2.4"
   }
