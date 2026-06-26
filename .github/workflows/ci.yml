@@ -14,40 +14,32 @@ jobs:
   frontend:
     name: Frontend test and build
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app/frontend
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Enable Corepack
-        run: corepack enable
+      - name: Setup pnpm via Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.14.0 --activate
+          pnpm --version
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-        working-directory: .
 
       - name: Test
         run: pnpm test
 
       - name: Build
-        run: pnpm build
+        run: pnpm --dir app/frontend build
 
-  rust:
-    name: Rust workspace tests
+  rust-linux:
+    name: Rust core/service tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -59,5 +51,21 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Test workspace
+      - name: Test cross-platform crates
+        run: cargo test -p zapret-manager-core -p zapret-manager-service --all-features
+
+  rust-windows:
+    name: Rust workspace tests
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test full workspace
         run: cargo test --workspace --all-features
