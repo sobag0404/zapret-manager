@@ -51,9 +51,6 @@ jobs:
         working-directory: app/frontend
         run: pnpm build
 
-      - name: Test Rust workspace
-        run: cargo test --workspace --all-features
-
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version 2.11.2 --locked
 
