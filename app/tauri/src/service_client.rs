@@ -729,7 +729,7 @@ fn write_launch_wrapper(bat: &Path, work_dir: &Path) -> Result<PathBuf> {
     let log = work_dir.join("engine-launch.log");
     let strategy_source =
         fs::read_to_string(bat).map_err(|source| zapret_manager_core::io_error(bat, source))?;
-    let strategy_script = strategy_source.replace("start \"zapret: %~n0\" /min ", "");
+    let strategy_script = sanitize_strategy_script(&strategy_source);
     if strategy_script == strategy_source {
         return Err(ZapretError::Operation(format!(
             "Flowseal strategy has unsupported launch format: {}",
@@ -753,6 +753,32 @@ fn write_launch_wrapper(bat: &Path, work_dir: &Path) -> Result<PathBuf> {
     fs::write(&launcher, script)
         .map_err(|source| zapret_manager_core::io_error(&launcher, source))?;
     Ok(launcher)
+}
+
+fn sanitize_strategy_script(source: &str) -> String {
+    let mut output = String::new();
+    let mut inserted_fallbacks = false;
+
+    for line in source.lines() {
+        let normalized = line.trim().to_ascii_lowercase();
+        if normalized.starts_with("call service.bat status_zapret")
+            || normalized.starts_with("call service.bat check_updates")
+            || normalized.starts_with("call service.bat load_game_filter")
+            || normalized.starts_with("call service.bat load_user_lists")
+        {
+            if !inserted_fallbacks {
+                output.push_str("set \"GameFilterTCP=65535\"\r\n");
+                output.push_str("set \"GameFilterUDP=65535\"\r\n");
+                inserted_fallbacks = true;
+            }
+            continue;
+        }
+
+        output.push_str(&line.replace("start \"zapret: %~n0\" /min ", ""));
+        output.push_str("\r\n");
+    }
+
+    output
 }
 
 struct EngineReadiness {
@@ -937,6 +963,29 @@ fn cleanup_old_runtime_dirs(runtime_root: &Path, keep: &Path) {
         if path != keep && path.is_dir() {
             cleanup_runtime_dir_best_effort(&path);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_strategy_script;
+
+    #[test]
+    fn strategy_sanitizer_removes_service_bat_dependencies() {
+        let source = r#"@echo off
+call service.bat status_zapret
+call service.bat check_updates
+call service.bat load_game_filter
+call service.bat load_user_lists
+start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
+"#;
+
+        let sanitized = sanitize_strategy_script(source);
+
+        assert!(!sanitized.contains("service.bat"));
+        assert!(!sanitized.contains("start \"zapret: %~n0\" /min"));
+        assert!(sanitized.contains("set \"GameFilterTCP=65535\""));
+        assert!(sanitized.contains("\"%BIN%winws.exe\" --wf-tcp=%GameFilterTCP%"));
     }
 }
 
