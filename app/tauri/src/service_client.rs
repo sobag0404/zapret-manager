@@ -1,5 +1,5 @@
 use std::ffi::OsStr;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
@@ -9,9 +9,12 @@ use std::os::windows::ffi::OsStrExt;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::CloseHandle;
+use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
 #[cfg(windows)]
-use windows_sys::Win32::System::Threading::GetProcessId;
+use windows_sys::Win32::System::Threading::{
+    GetExitCodeProcess, GetProcessId, OpenProcess, TerminateProcess,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+};
 #[cfg(windows)]
 use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
 #[cfg(windows)]
@@ -71,9 +74,10 @@ impl ServiceClient {
             enabled_profiles: self.enabled_profiles.clone(),
             profiles: self.list_profiles()?,
             message: if self.enabled {
-                "Работает".to_string()
+                "Р В Р’В Р В Р’В°Р В Р’В±Р В РЎвЂўР РЋРІР‚С™Р В Р’В°Р В Р’ВµР РЋРІР‚С™".to_string()
             } else {
-                "Отключено".to_string()
+                "Р В РЎвЂєР РЋРІР‚С™Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂў"
+                    .to_string()
             },
         })
     }
@@ -103,11 +107,11 @@ impl ServiceClient {
     pub fn set_profile_enabled(&mut self, id: String, enabled: bool) -> Result<Vec<String>> {
         if enabled && !self.enabled_profiles.contains(&id) {
             self.enabled_profiles.push(id.clone());
-            self.log_user(&format!("Выбран режим: {id}."))?;
+            self.log_user(&format!("Р В РІР‚в„ўР РЋРІР‚в„–Р В Р’В±Р РЋР вЂљР В Р’В°Р В Р вЂ¦ Р РЋР вЂљР В Р’ВµР В Р’В¶Р В РЎвЂР В РЎВ: {id}."))?;
             self.log_debug("info", "profile_selected", &id)?;
         } else if !enabled {
             self.enabled_profiles.retain(|profile| profile != &id);
-            self.log_user(&format!("Режим снят: {id}."))?;
+            self.log_user(&format!("Р В Р’В Р В Р’ВµР В Р’В¶Р В РЎвЂР В РЎВ Р РЋР С“Р В Р вЂ¦Р РЋР РЏР РЋРІР‚С™: {id}."))?;
             self.log_debug("info", "profile_unselected", &id)?;
         }
         Ok(self.enabled_profiles.clone())
@@ -116,7 +120,7 @@ impl ServiceClient {
     pub fn enable(&mut self, profiles: Vec<String>) -> Result<AppStatus> {
         if profiles.is_empty() {
             return Err(ZapretError::Operation(
-                "Выберите хотя бы один режим.".to_string(),
+                "Р В РІР‚в„ўР РЋРІР‚в„–Р В Р’В±Р В Р’ВµР РЋР вЂљР В РЎвЂР РЋРІР‚С™Р В Р’Вµ Р РЋРІР‚В¦Р В РЎвЂўР РЋРІР‚С™Р РЋР РЏ Р В Р’В±Р РЋРІР‚в„– Р В РЎвЂўР В РўвЂР В РЎвЂР В Р вЂ¦ Р РЋР вЂљР В Р’ВµР В Р’В¶Р В РЎвЂР В РЎВ.".to_string(),
             ));
         }
 
@@ -127,7 +131,7 @@ impl ServiceClient {
         let engine = self.engine_readiness();
         if !engine.ready {
             self.log_user(
-                "Включение не выполнено: реальный engine не подключён или hash не совпал.",
+                "Р В РІР‚в„ўР В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’Вµ Р В Р вЂ¦Р В Р’Вµ Р В Р вЂ Р РЋРІР‚в„–Р В РЎвЂ”Р В РЎвЂўР В Р’В»Р В Р вЂ¦Р В Р’ВµР В Р вЂ¦Р В РЎвЂў: Р РЋР вЂљР В Р’ВµР В Р’В°Р В Р’В»Р РЋР Р‰Р В Р вЂ¦Р РЋРІР‚в„–Р В РІвЂћвЂ“ engine Р В Р вЂ¦Р В Р’Вµ Р В РЎвЂ”Р В РЎвЂўР В РўвЂР В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР РЋРІР‚ВР В Р вЂ¦ Р В РЎвЂР В Р’В»Р В РЎвЂ hash Р В Р вЂ¦Р В Р’Вµ Р РЋР С“Р В РЎвЂўР В Р вЂ Р В РЎвЂ”Р В Р’В°Р В Р’В».",
             )?;
             self.log_debug("warn", "enable_blocked_engine_missing", &engine.message)?;
             return Err(ZapretError::Operation(engine.message));
@@ -147,14 +151,14 @@ impl ServiceClient {
         )?;
 
         if self.settings.safety_mode && !self.settings.allow_vpn_conflict && vpn.detected {
-            self.log_user("Включение остановлено: активен VPN и выключена совместимость с VPN.")?;
+            self.log_user("Р В РІР‚в„ўР В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’Вµ Р В РЎвЂўР РЋР С“Р РЋРІР‚С™Р В Р’В°Р В Р вЂ¦Р В РЎвЂўР В Р вЂ Р В Р’В»Р В Р’ВµР В Р вЂ¦Р В РЎвЂў: Р В Р’В°Р В РЎвЂќР РЋРІР‚С™Р В РЎвЂР В Р вЂ Р В Р’ВµР В Р вЂ¦ VPN Р В РЎвЂ Р В Р вЂ Р РЋРІР‚в„–Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В Р’В° Р РЋР С“Р В РЎвЂўР В Р вЂ Р В РЎВР В Р’ВµР РЋР С“Р РЋРІР‚С™Р В РЎвЂР В РЎВР В РЎвЂўР РЋР С“Р РЋРІР‚С™Р РЋР Р‰ Р РЋР С“ VPN.")?;
             return Err(ZapretError::Operation(format!(
-                "Обнаружен активный VPN: {}. Включение заблокировано режимом безопасности.",
+                "Р В РЎвЂєР В Р’В±Р В Р вЂ¦Р В Р’В°Р РЋР вЂљР РЋРЎвЂњР В Р’В¶Р В Р’ВµР В Р вЂ¦ Р В Р’В°Р В РЎвЂќР РЋРІР‚С™Р В РЎвЂР В Р вЂ Р В Р вЂ¦Р РЋРІР‚в„–Р В РІвЂћвЂ“ VPN: {}. Р В РІР‚в„ўР В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’Вµ Р В Р’В·Р В Р’В°Р В Р’В±Р В Р’В»Р В РЎвЂўР В РЎвЂќР В РЎвЂР РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’В°Р В Р вЂ¦Р В РЎвЂў Р РЋР вЂљР В Р’ВµР В Р’В¶Р В РЎвЂР В РЎВР В РЎвЂўР В РЎВ Р В Р’В±Р В Р’ВµР В Р’В·Р В РЎвЂўР В РЎвЂ”Р В Р’В°Р РЋР С“Р В Р вЂ¦Р В РЎвЂўР РЋР С“Р РЋРІР‚С™Р В РЎвЂ.",
                 vpn.adapter_names.join(", ")
             )));
         }
 
-        self.log_user("Создаётся snapshot перед включением.")?;
+        self.log_user("Р В Р Р‹Р В РЎвЂўР В Р’В·Р В РўвЂР В Р’В°Р РЋРІР‚ВР РЋРІР‚С™Р РЋР С“Р РЋР РЏ snapshot Р В РЎвЂ”Р В Р’ВµР РЋР вЂљР В Р’ВµР В РўвЂ Р В Р вЂ Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’ВµР В РЎВ.")?;
         let snapshot = SystemSnapshot::mock(profiles.clone(), vec![engine.version.clone()]);
         let snapshot_path = snapshot.save(&self.data_root.join("snapshots"))?;
         self.log_debug(
@@ -172,7 +176,7 @@ impl ServiceClient {
         self.enabled = true;
 
         self.log_user(&format!(
-            "Режим включён: {}. Engine PID: {}.",
+            "Р В Р’В Р В Р’ВµР В Р’В¶Р В РЎвЂР В РЎВ Р В Р вЂ Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР РЋРІР‚ВР В Р вЂ¦: {}. Engine PID: {}.",
             profiles.join(", "),
             pid
         ))?;
@@ -181,7 +185,7 @@ impl ServiceClient {
     }
 
     pub fn disable_all(&mut self) -> Result<AppStatus> {
-        self.log_user("Выключение режима: остановка engine.")?;
+        self.log_user("Р В РІР‚в„ўР РЋРІР‚в„–Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’Вµ Р РЋР вЂљР В Р’ВµР В Р’В¶Р В РЎвЂР В РЎВР В Р’В°: Р В РЎвЂўР РЋР С“Р РЋРІР‚С™Р В Р’В°Р В Р вЂ¦Р В РЎвЂўР В Р вЂ Р В РЎвЂќР В Р’В° engine.")?;
         self.log_debug(
             "info",
             "disable_requested",
@@ -219,7 +223,7 @@ impl ServiceClient {
 
         self.enabled = false;
         self.enabled_profiles.clear();
-        self.log_user("Система восстановлена. Временные правила удалены.")?;
+        self.log_user("Р В Р Р‹Р В РЎвЂР РЋР С“Р РЋРІР‚С™Р В Р’ВµР В РЎВР В Р’В° Р В Р вЂ Р В РЎвЂўР РЋР С“Р РЋР С“Р РЋРІР‚С™Р В Р’В°Р В Р вЂ¦Р В РЎвЂўР В Р вЂ Р В Р’В»Р В Р’ВµР В Р вЂ¦Р В Р’В°. Р В РІР‚в„ўР РЋР вЂљР В Р’ВµР В РЎВР В Р’ВµР В Р вЂ¦Р В Р вЂ¦Р РЋРІР‚в„–Р В Р’Вµ Р В РЎвЂ”Р РЋР вЂљР В Р’В°Р В Р вЂ Р В РЎвЂР В Р’В»Р В Р’В° Р РЋРЎвЂњР В РўвЂР В Р’В°Р В Р’В»Р В Р’ВµР В Р вЂ¦Р РЋРІР‚в„–.")?;
         self.log_debug("info", "safe_revert_completed", "engine process stopped")?;
         self.status()
     }
@@ -232,33 +236,33 @@ impl ServiceClient {
         DiagnosticReport::aggregate(vec![
             diag(
                 "admin",
-                "Права администратора",
+                "Р В РЎСџР РЋР вЂљР В Р’В°Р В Р вЂ Р В Р’В° Р В Р’В°Р В РўвЂР В РЎВР В РЎвЂР В Р вЂ¦Р В РЎвЂР РЋР С“Р РЋРІР‚С™Р РЋР вЂљР В Р’В°Р РЋРІР‚С™Р В РЎвЂўР РЋР вЂљР В Р’В°",
                 if admin {
                     DiagnosticStatus::Ok
                 } else {
                     DiagnosticStatus::Warning
                 },
                 if admin {
-                    "Приложение запущено с правами администратора."
+                    "Р В РЎСџР РЋР вЂљР В РЎвЂР В Р’В»Р В РЎвЂўР В Р’В¶Р В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’Вµ Р В Р’В·Р В Р’В°Р В РЎвЂ”Р РЋРЎвЂњР РЋРІР‚В°Р В Р’ВµР В Р вЂ¦Р В РЎвЂў Р РЋР С“ Р В РЎвЂ”Р РЋР вЂљР В Р’В°Р В Р вЂ Р В Р’В°Р В РЎВР В РЎвЂ Р В Р’В°Р В РўвЂР В РЎВР В РЎвЂР В Р вЂ¦Р В РЎвЂР РЋР С“Р РЋРІР‚С™Р РЋР вЂљР В Р’В°Р РЋРІР‚С™Р В РЎвЂўР РЋР вЂљР В Р’В°."
                 } else {
-                    "GUI может работать без администратора. При включении появится UAC-запрос для engine."
+                    "GUI Р В РЎВР В РЎвЂўР В Р’В¶Р В Р’ВµР РЋРІР‚С™ Р РЋР вЂљР В Р’В°Р В Р’В±Р В РЎвЂўР РЋРІР‚С™Р В Р’В°Р РЋРІР‚С™Р РЋР Р‰ Р В Р’В±Р В Р’ВµР В Р’В· Р В Р’В°Р В РўвЂР В РЎВР В РЎвЂР В Р вЂ¦Р В РЎвЂР РЋР С“Р РЋРІР‚С™Р РЋР вЂљР В Р’В°Р РЋРІР‚С™Р В РЎвЂўР РЋР вЂљР В Р’В°. Р В РЎСџР РЋР вЂљР В РЎвЂ Р В Р вЂ Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР В РЎвЂ Р В РЎвЂ”Р В РЎвЂўР РЋР РЏР В Р вЂ Р В РЎвЂР РЋРІР‚С™Р РЋР С“Р РЋР РЏ UAC-Р В Р’В·Р В Р’В°Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР РЋР С“ Р В РўвЂР В Р’В»Р РЋР РЏ engine."
                 },
             ),
             diag(
                 "service_installed",
-                "Служба установлена",
+                "Р В Р Р‹Р В Р’В»Р РЋРЎвЂњР В Р’В¶Р В Р’В±Р В Р’В° Р РЋРЎвЂњР РЋР С“Р РЋРІР‚С™Р В Р’В°Р В Р вЂ¦Р В РЎвЂўР В Р вЂ Р В Р’В»Р В Р’ВµР В Р вЂ¦Р В Р’В°",
                 DiagnosticStatus::Ok,
-                "Локальный backend доступен. Engine запускается только по кнопке Включить.",
+                "Р В РІР‚С”Р В РЎвЂўР В РЎвЂќР В Р’В°Р В Р’В»Р РЋР Р‰Р В Р вЂ¦Р РЋРІР‚в„–Р В РІвЂћвЂ“ backend Р В РўвЂР В РЎвЂўР РЋР С“Р РЋРІР‚С™Р РЋРЎвЂњР В РЎвЂ”Р В Р’ВµР В Р вЂ¦. Engine Р В Р’В·Р В Р’В°Р В РЎвЂ”Р РЋРЎвЂњР РЋР С“Р В РЎвЂќР В Р’В°Р В Р’ВµР РЋРІР‚С™Р РЋР С“Р РЋР РЏ Р РЋРІР‚С™Р В РЎвЂўР В Р’В»Р РЋР Р‰Р В РЎвЂќР В РЎвЂў Р В РЎвЂ”Р В РЎвЂў Р В РЎвЂќР В Р вЂ¦Р В РЎвЂўР В РЎвЂ”Р В РЎвЂќР В Р’Вµ Р В РІР‚в„ўР В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В РЎвЂР РЋРІР‚С™Р РЋР Р‰.",
             ),
             diag(
                 "service_running",
-                "Служба запущена",
+                "Р В Р Р‹Р В Р’В»Р РЋРЎвЂњР В Р’В¶Р В Р’В±Р В Р’В° Р В Р’В·Р В Р’В°Р В РЎвЂ”Р РЋРЎвЂњР РЋРІР‚В°Р В Р’ВµР В Р вЂ¦Р В Р’В°",
                 DiagnosticStatus::Ok,
-                "Локальный backend отвечает.",
+                "Р В РІР‚С”Р В РЎвЂўР В РЎвЂќР В Р’В°Р В Р’В»Р РЋР Р‰Р В Р вЂ¦Р РЋРІР‚в„–Р В РІвЂћвЂ“ backend Р В РЎвЂўР РЋРІР‚С™Р В Р вЂ Р В Р’ВµР РЋРІР‚РЋР В Р’В°Р В Р’ВµР РЋРІР‚С™.",
             ),
             diag(
                 "engine_found",
-                "Engine найден",
+                "Engine Р В Р вЂ¦Р В Р’В°Р В РІвЂћвЂ“Р В РўвЂР В Р’ВµР В Р вЂ¦",
                 if engine.ready {
                     DiagnosticStatus::Ok
                 } else {
@@ -268,155 +272,155 @@ impl ServiceClient {
             ),
             diag(
                 "engine_hash",
-                "Engine hash совпадает",
+                "Engine hash Р РЋР С“Р В РЎвЂўР В Р вЂ Р В РЎвЂ”Р В Р’В°Р В РўвЂР В Р’В°Р В Р’ВµР РЋРІР‚С™",
                 if engine.ready {
                     DiagnosticStatus::Ok
                 } else {
                     DiagnosticStatus::Skipped
                 },
                 if engine.ready {
-                    "Engine manifest и hash проверены."
+                    "Engine manifest Р В РЎвЂ hash Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’ВµР РЋР вЂљР В Р’ВµР В Р вЂ¦Р РЋРІР‚в„–."
                 } else {
-                    "Проверка hash невозможна, пока engine не подключён корректно."
+                    "Р В РЎСџР РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’ВµР РЋР вЂљР В РЎвЂќР В Р’В° hash Р В Р вЂ¦Р В Р’ВµР В Р вЂ Р В РЎвЂўР В Р’В·Р В РЎВР В РЎвЂўР В Р’В¶Р В Р вЂ¦Р В Р’В°, Р В РЎвЂ”Р В РЎвЂўР В РЎвЂќР В Р’В° engine Р В Р вЂ¦Р В Р’Вµ Р В РЎвЂ”Р В РЎвЂўР В РўвЂР В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР РЋРІР‚ВР В Р вЂ¦ Р В РЎвЂќР В РЎвЂўР РЋР вЂљР РЋР вЂљР В Р’ВµР В РЎвЂќР РЋРІР‚С™Р В Р вЂ¦Р В РЎвЂў."
                 },
             ),
             diag(
                 "driver",
-                "Драйвер доступен",
+                "Р В РІР‚СњР РЋР вЂљР В Р’В°Р В РІвЂћвЂ“Р В Р вЂ Р В Р’ВµР РЋР вЂљ Р В РўвЂР В РЎвЂўР РЋР С“Р РЋРІР‚С™Р РЋРЎвЂњР В РЎвЂ”Р В Р’ВµР В Р вЂ¦",
                 if engine.ready {
                     DiagnosticStatus::Warning
                 } else {
                     DiagnosticStatus::Skipped
                 },
-                "WinDivert проверяется при запуске engine. Антивирус может потребовать исключение.",
+                "WinDivert Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’ВµР РЋР вЂљР РЋР РЏР В Р’ВµР РЋРІР‚С™Р РЋР С“Р РЋР РЏ Р В РЎвЂ”Р РЋР вЂљР В РЎвЂ Р В Р’В·Р В Р’В°Р В РЎвЂ”Р РЋРЎвЂњР РЋР С“Р В РЎвЂќР В Р’Вµ engine. Р В РЎвЂ™Р В Р вЂ¦Р РЋРІР‚С™Р В РЎвЂР В Р вЂ Р В РЎвЂР РЋР вЂљР РЋРЎвЂњР РЋР С“ Р В РЎВР В РЎвЂўР В Р’В¶Р В Р’ВµР РЋРІР‚С™ Р В РЎвЂ”Р В РЎвЂўР РЋРІР‚С™Р РЋР вЂљР В Р’ВµР В Р’В±Р В РЎвЂўР В Р вЂ Р В Р’В°Р РЋРІР‚С™Р РЋР Р‰ Р В РЎвЂР РЋР С“Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’Вµ.",
             ),
             diag(
                 "profile_valid",
-                "Профили валидны",
+                "Р В РЎСџР РЋР вЂљР В РЎвЂўР РЋРІР‚С›Р В РЎвЂР В Р’В»Р В РЎвЂ Р В Р вЂ Р В Р’В°Р В Р’В»Р В РЎвЂР В РўвЂР В Р вЂ¦Р РЋРІР‚в„–",
                 if profiles_found {
                     DiagnosticStatus::Ok
                 } else {
                     DiagnosticStatus::Error
                 },
                 if profiles_found {
-                    "Профили найдены и загружены."
+                    "Р В РЎСџР РЋР вЂљР В РЎвЂўР РЋРІР‚С›Р В РЎвЂР В Р’В»Р В РЎвЂ Р В Р вЂ¦Р В Р’В°Р В РІвЂћвЂ“Р В РўвЂР В Р’ВµР В Р вЂ¦Р РЋРІР‚в„– Р В РЎвЂ Р В Р’В·Р В Р’В°Р В РЎвЂ“Р РЋР вЂљР РЋРЎвЂњР В Р’В¶Р В Р’ВµР В Р вЂ¦Р РЋРІР‚в„–."
                 } else {
-                    "Папка profiles не найдена рядом с приложением."
+                    "Р В РЎСџР В Р’В°Р В РЎвЂ”Р В РЎвЂќР В Р’В° profiles Р В Р вЂ¦Р В Р’Вµ Р В Р вЂ¦Р В Р’В°Р В РІвЂћвЂ“Р В РўвЂР В Р’ВµР В Р вЂ¦Р В Р’В° Р РЋР вЂљР РЋР РЏР В РўвЂР В РЎвЂўР В РЎВ Р РЋР С“ Р В РЎвЂ”Р РЋР вЂљР В РЎвЂР В Р’В»Р В РЎвЂўР В Р’В¶Р В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’ВµР В РЎВ."
                 },
             ),
             diag(
                 "strategy_valid",
-                "Стратегии валидны",
+                "Р В Р Р‹Р РЋРІР‚С™Р РЋР вЂљР В Р’В°Р РЋРІР‚С™Р В Р’ВµР В РЎвЂ“Р В РЎвЂР В РЎвЂ Р В Р вЂ Р В Р’В°Р В Р’В»Р В РЎвЂР В РўвЂР В Р вЂ¦Р РЋРІР‚в„–",
                 DiagnosticStatus::Ok,
-                "Стратегии проверяются через manifest/hash/schema.",
+                "Р В Р Р‹Р РЋРІР‚С™Р РЋР вЂљР В Р’В°Р РЋРІР‚С™Р В Р’ВµР В РЎвЂ“Р В РЎвЂР В РЎвЂ Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’ВµР РЋР вЂљР РЋР РЏР РЋР вЂ№Р РЋРІР‚С™Р РЋР С“Р РЋР РЏ Р РЋРІР‚РЋР В Р’ВµР РЋР вЂљР В Р’ВµР В Р’В· manifest/hash/schema.",
             ),
             diag(
                 "dns",
-                "DNS работает",
+                "DNS Р РЋР вЂљР В Р’В°Р В Р’В±Р В РЎвЂўР РЋРІР‚С™Р В Р’В°Р В Р’ВµР РЋРІР‚С™",
                 DiagnosticStatus::Ok,
-                "DNS не меняется приложением. Для браузера рекомендуется Secure DNS.",
+                "DNS Р В Р вЂ¦Р В Р’Вµ Р В РЎВР В Р’ВµР В Р вЂ¦Р РЋР РЏР В Р’ВµР РЋРІР‚С™Р РЋР С“Р РЋР РЏ Р В РЎвЂ”Р РЋР вЂљР В РЎвЂР В Р’В»Р В РЎвЂўР В Р’В¶Р В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’ВµР В РЎВ. Р В РІР‚СњР В Р’В»Р РЋР РЏ Р В Р’В±Р РЋР вЂљР В Р’В°Р РЋРЎвЂњР В Р’В·Р В Р’ВµР РЋР вЂљР В Р’В° Р РЋР вЂљР В Р’ВµР В РЎвЂќР В РЎвЂўР В РЎВР В Р’ВµР В Р вЂ¦Р В РўвЂР РЋРЎвЂњР В Р’ВµР РЋРІР‚С™Р РЋР С“Р РЋР РЏ Secure DNS.",
             ),
             diag(
                 "internet",
-                "Интернет доступен",
+                "Р В Р’ВР В Р вЂ¦Р РЋРІР‚С™Р В Р’ВµР РЋР вЂљР В Р вЂ¦Р В Р’ВµР РЋРІР‚С™ Р В РўвЂР В РЎвЂўР РЋР С“Р РЋРІР‚С™Р РЋРЎвЂњР В РЎвЂ”Р В Р’ВµР В Р вЂ¦",
                 DiagnosticStatus::Ok,
-                "Базовая проверка доступности сети пройдёт после включения.",
+                "Р В РІР‚ВР В Р’В°Р В Р’В·Р В РЎвЂўР В Р вЂ Р В Р’В°Р РЋР РЏ Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’ВµР РЋР вЂљР В РЎвЂќР В Р’В° Р В РўвЂР В РЎвЂўР РЋР С“Р РЋРІР‚С™Р РЋРЎвЂњР В РЎвЂ”Р В Р вЂ¦Р В РЎвЂўР РЋР С“Р РЋРІР‚С™Р В РЎвЂ Р РЋР С“Р В Р’ВµР РЋРІР‚С™Р В РЎвЂ Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР В РІвЂћвЂ“Р В РўвЂР РЋРІР‚ВР РЋРІР‚С™ Р В РЎвЂ”Р В РЎвЂўР РЋР С“Р В Р’В»Р В Р’Вµ Р В Р вЂ Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР РЋР РЏ.",
             ),
             diag(
                 "discord",
-                "Discord доступен",
+                "Discord Р В РўвЂР В РЎвЂўР РЋР С“Р РЋРІР‚С™Р РЋРЎвЂњР В РЎвЂ”Р В Р’ВµР В Р вЂ¦",
                 if self.enabled {
                     DiagnosticStatus::Ok
                 } else {
                     DiagnosticStatus::Skipped
                 },
-                "После включения проверьте Discord в приложении и браузере.",
+                "Р В РЎСџР В РЎвЂўР РЋР С“Р В Р’В»Р В Р’Вµ Р В Р вЂ Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР РЋР РЏ Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’ВµР РЋР вЂљР РЋР Р‰Р РЋРІР‚С™Р В Р’Вµ Discord Р В Р вЂ  Р В РЎвЂ”Р РЋР вЂљР В РЎвЂР В Р’В»Р В РЎвЂўР В Р’В¶Р В Р’ВµР В Р вЂ¦Р В РЎвЂР В РЎвЂ Р В РЎвЂ Р В Р’В±Р РЋР вЂљР В Р’В°Р РЋРЎвЂњР В Р’В·Р В Р’ВµР РЋР вЂљР В Р’Вµ.",
             ),
             diag(
                 "youtube",
-                "YouTube доступен",
+                "YouTube Р В РўвЂР В РЎвЂўР РЋР С“Р РЋРІР‚С™Р РЋРЎвЂњР В РЎвЂ”Р В Р’ВµР В Р вЂ¦",
                 if self.enabled {
                     DiagnosticStatus::Ok
                 } else {
                     DiagnosticStatus::Skipped
                 },
-                "После включения проверьте YouTube в браузере.",
+                "Р В РЎСџР В РЎвЂўР РЋР С“Р В Р’В»Р В Р’Вµ Р В Р вЂ Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР РЋР РЏ Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’ВµР РЋР вЂљР РЋР Р‰Р РЋРІР‚С™Р В Р’Вµ YouTube Р В Р вЂ  Р В Р’В±Р РЋР вЂљР В Р’В°Р РЋРЎвЂњР В Р’В·Р В Р’ВµР РЋР вЂљР В Р’Вµ.",
             ),
             diag(
                 "telegram",
-                "Telegram доступен",
+                "Telegram Р В РўвЂР В РЎвЂўР РЋР С“Р РЋРІР‚С™Р РЋРЎвЂњР В РЎвЂ”Р В Р’ВµР В Р вЂ¦",
                 if self.enabled {
                     DiagnosticStatus::Warning
                 } else {
                     DiagnosticStatus::Skipped
                 },
-                "Telegram зависит от провайдера; web.telegram.org добавлен в пользовательский hostlist.",
+                "Telegram Р В Р’В·Р В Р’В°Р В Р вЂ Р В РЎвЂР РЋР С“Р В РЎвЂР РЋРІР‚С™ Р В РЎвЂўР РЋРІР‚С™ Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’В°Р В РІвЂћвЂ“Р В РўвЂР В Р’ВµР РЋР вЂљР В Р’В°; web.telegram.org Р В РўвЂР В РЎвЂўР В Р’В±Р В Р’В°Р В Р вЂ Р В Р’В»Р В Р’ВµР В Р вЂ¦ Р В Р вЂ  Р В РЎвЂ”Р В РЎвЂўР В Р’В»Р РЋР Р‰Р В Р’В·Р В РЎвЂўР В Р вЂ Р В Р’В°Р РЋРІР‚С™Р В Р’ВµР В Р’В»Р РЋР Р‰Р РЋР С“Р В РЎвЂќР В РЎвЂР В РІвЂћвЂ“ hostlist.",
             ),
             diag(
                 "whatsapp",
-                "WhatsApp доступен",
+                "WhatsApp Р В РўвЂР В РЎвЂўР РЋР С“Р РЋРІР‚С™Р РЋРЎвЂњР В РЎвЂ”Р В Р’ВµР В Р вЂ¦",
                 if self.enabled {
                     DiagnosticStatus::Warning
                 } else {
                     DiagnosticStatus::Skipped
                 },
-                "WhatsApp Web и desktop добавлены в общий hostlist. Если включён VPN, он может перехватывать трафик раньше engine.",
+                "WhatsApp Web Р В РЎвЂ desktop Р В РўвЂР В РЎвЂўР В Р’В±Р В Р’В°Р В Р вЂ Р В Р’В»Р В Р’ВµР В Р вЂ¦Р РЋРІР‚в„– Р В Р вЂ  Р В РЎвЂўР В Р’В±Р РЋРІР‚В°Р В РЎвЂР В РІвЂћвЂ“ hostlist. Р В РІР‚СћР РЋР С“Р В Р’В»Р В РЎвЂ Р В Р вЂ Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР РЋРІР‚ВР В Р вЂ¦ VPN, Р В РЎвЂўР В Р вЂ¦ Р В РЎВР В РЎвЂўР В Р’В¶Р В Р’ВµР РЋРІР‚С™ Р В РЎвЂ”Р В Р’ВµР РЋР вЂљР В Р’ВµР РЋРІР‚В¦Р В Р вЂ Р В Р’В°Р РЋРІР‚С™Р РЋРІР‚в„–Р В Р вЂ Р В Р’В°Р РЋРІР‚С™Р РЋР Р‰ Р РЋРІР‚С™Р РЋР вЂљР В Р’В°Р РЋРІР‚С›Р В РЎвЂР В РЎвЂќ Р РЋР вЂљР В Р’В°Р В Р вЂ¦Р РЋР Р‰Р РЋРІвЂљВ¬Р В Р’Вµ engine.",
             ),
             DiagnosticItem {
                 id: "vpn".to_string(),
-                title: "Совместимость с VPN".to_string(),
+                title: "Р В Р Р‹Р В РЎвЂўР В Р вЂ Р В РЎВР В Р’ВµР РЋР С“Р РЋРІР‚С™Р В РЎвЂР В РЎВР В РЎвЂўР РЋР С“Р РЋРІР‚С™Р РЋР Р‰ Р РЋР С“ VPN".to_string(),
                 status: if vpn.detected {
                     DiagnosticStatus::Warning
                 } else {
                     DiagnosticStatus::Ok
                 },
                 problem: if vpn.detected {
-                    Some(format!("Активный VPN: {}.", vpn.adapter_names.join(", ")))
+                    Some(format!("Р В РЎвЂ™Р В РЎвЂќР РЋРІР‚С™Р В РЎвЂР В Р вЂ Р В Р вЂ¦Р РЋРІР‚в„–Р В РІвЂћвЂ“ VPN: {}.", vpn.adapter_names.join(", ")))
                 } else {
                     None
                 },
                 action: Some(if vpn.detected {
-                    "Приложение не меняет DNS/proxy/routes; если VPN перехватывает весь трафик, эффект engine может быть незаметен."
+                    "Р В РЎСџР РЋР вЂљР В РЎвЂР В Р’В»Р В РЎвЂўР В Р’В¶Р В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’Вµ Р В Р вЂ¦Р В Р’Вµ Р В РЎВР В Р’ВµР В Р вЂ¦Р РЋР РЏР В Р’ВµР РЋРІР‚С™ DNS/proxy/routes; Р В Р’ВµР РЋР С“Р В Р’В»Р В РЎвЂ VPN Р В РЎвЂ”Р В Р’ВµР РЋР вЂљР В Р’ВµР РЋРІР‚В¦Р В Р вЂ Р В Р’В°Р РЋРІР‚С™Р РЋРІР‚в„–Р В Р вЂ Р В Р’В°Р В Р’ВµР РЋРІР‚С™ Р В Р вЂ Р В Р’ВµР РЋР С“Р РЋР Р‰ Р РЋРІР‚С™Р РЋР вЂљР В Р’В°Р РЋРІР‚С›Р В РЎвЂР В РЎвЂќ, Р РЋР РЉР РЋРІР‚С›Р РЋРІР‚С›Р В Р’ВµР В РЎвЂќР РЋРІР‚С™ engine Р В РЎВР В РЎвЂўР В Р’В¶Р В Р’ВµР РЋРІР‚С™ Р В Р’В±Р РЋРІР‚в„–Р РЋРІР‚С™Р РЋР Р‰ Р В Р вЂ¦Р В Р’ВµР В Р’В·Р В Р’В°Р В РЎВР В Р’ВµР РЋРІР‚С™Р В Р’ВµР В Р вЂ¦."
                         .to_string()
                 } else {
-                    "Конфликт с VPN не найден.".to_string()
+                    "Р В РЎв„ўР В РЎвЂўР В Р вЂ¦Р РЋРІР‚С›Р В Р’В»Р В РЎвЂР В РЎвЂќР РЋРІР‚С™ Р РЋР С“ VPN Р В Р вЂ¦Р В Р’Вµ Р В Р вЂ¦Р В Р’В°Р В РІвЂћвЂ“Р В РўвЂР В Р’ВµР В Р вЂ¦.".to_string()
                 }),
             },
             diag(
                 "proxy",
-                "Нет конфликта с proxy",
+                "Р В РЎСљР В Р’ВµР РЋРІР‚С™ Р В РЎвЂќР В РЎвЂўР В Р вЂ¦Р РЋРІР‚С›Р В Р’В»Р В РЎвЂР В РЎвЂќР РЋРІР‚С™Р В Р’В° Р РЋР С“ proxy",
                 DiagnosticStatus::Ok,
-                "Proxy не меняется.",
+                "Proxy Р В Р вЂ¦Р В Р’Вµ Р В РЎВР В Р’ВµР В Р вЂ¦Р РЋР РЏР В Р’ВµР РЋРІР‚С™Р РЋР С“Р РЋР РЏ.",
             ),
             diag(
                 "antivirus",
-                "Конфликт с антивирусом",
+                "Р В РЎв„ўР В РЎвЂўР В Р вЂ¦Р РЋРІР‚С›Р В Р’В»Р В РЎвЂР В РЎвЂќР РЋРІР‚С™ Р РЋР С“ Р В Р’В°Р В Р вЂ¦Р РЋРІР‚С™Р В РЎвЂР В Р вЂ Р В РЎвЂР РЋР вЂљР РЋРЎвЂњР РЋР С“Р В РЎвЂўР В РЎВ",
                 DiagnosticStatus::Warning,
-                "WinDivert иногда определяется как PUA/RiskTool; при блокировке добавьте папку приложения в исключения.",
+                "WinDivert Р В РЎвЂР В Р вЂ¦Р В РЎвЂўР В РЎвЂ“Р В РўвЂР В Р’В° Р В РЎвЂўР В РЎвЂ”Р РЋР вЂљР В Р’ВµР В РўвЂР В Р’ВµР В Р’В»Р РЋР РЏР В Р’ВµР РЋРІР‚С™Р РЋР С“Р РЋР РЏ Р В РЎвЂќР В Р’В°Р В РЎвЂќ PUA/RiskTool; Р В РЎвЂ”Р РЋР вЂљР В РЎвЂ Р В Р’В±Р В Р’В»Р В РЎвЂўР В РЎвЂќР В РЎвЂР РЋР вЂљР В РЎвЂўР В Р вЂ Р В РЎвЂќР В Р’Вµ Р В РўвЂР В РЎвЂўР В Р’В±Р В Р’В°Р В Р вЂ Р РЋР Р‰Р РЋРІР‚С™Р В Р’Вµ Р В РЎвЂ”Р В Р’В°Р В РЎвЂ”Р В РЎвЂќР РЋРЎвЂњ Р В РЎвЂ”Р РЋР вЂљР В РЎвЂР В Р’В»Р В РЎвЂўР В Р’В¶Р В Р’ВµР В Р вЂ¦Р В РЎвЂР РЋР РЏ Р В Р вЂ  Р В РЎвЂР РЋР С“Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР РЋР РЏ.",
             ),
             diag(
                 "logs",
-                "Папка логов доступна",
+                "Р В РЎСџР В Р’В°Р В РЎвЂ”Р В РЎвЂќР В Р’В° Р В Р’В»Р В РЎвЂўР В РЎвЂ“Р В РЎвЂўР В Р вЂ  Р В РўвЂР В РЎвЂўР РЋР С“Р РЋРІР‚С™Р РЋРЎвЂњР В РЎвЂ”Р В Р вЂ¦Р В Р’В°",
                 DiagnosticStatus::Ok,
-                "Логи пишутся в локальную папку пользователя.",
+                "Р В РІР‚С”Р В РЎвЂўР В РЎвЂ“Р В РЎвЂ Р В РЎвЂ”Р В РЎвЂР РЋРІвЂљВ¬Р РЋРЎвЂњР РЋРІР‚С™Р РЋР С“Р РЋР РЏ Р В Р вЂ  Р В Р’В»Р В РЎвЂўР В РЎвЂќР В Р’В°Р В Р’В»Р РЋР Р‰Р В Р вЂ¦Р РЋРЎвЂњР РЋР вЂ№ Р В РЎвЂ”Р В Р’В°Р В РЎвЂ”Р В РЎвЂќР РЋРЎвЂњ Р В РЎвЂ”Р В РЎвЂўР В Р’В»Р РЋР Р‰Р В Р’В·Р В РЎвЂўР В Р вЂ Р В Р’В°Р РЋРІР‚С™Р В Р’ВµР В Р’В»Р РЋР РЏ.",
             ),
             diag(
                 "snapshot",
-                "Snapshot можно создать",
+                "Snapshot Р В РЎВР В РЎвЂўР В Р’В¶Р В Р вЂ¦Р В РЎвЂў Р РЋР С“Р В РЎвЂўР В Р’В·Р В РўвЂР В Р’В°Р РЋРІР‚С™Р РЋР Р‰",
                 DiagnosticStatus::Ok,
-                "Snapshot пишется перед каждым включением.",
+                "Snapshot Р В РЎвЂ”Р В РЎвЂР РЋРІвЂљВ¬Р В Р’ВµР РЋРІР‚С™Р РЋР С“Р РЋР РЏ Р В РЎвЂ”Р В Р’ВµР РЋР вЂљР В Р’ВµР В РўвЂ Р В РЎвЂќР В Р’В°Р В Р’В¶Р В РўвЂР РЋРІР‚в„–Р В РЎВ Р В Р вЂ Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’ВµР В РЎВ.",
             ),
             diag(
                 "revert",
-                "Revert можно выполнить",
+                "Revert Р В РЎВР В РЎвЂўР В Р’В¶Р В Р вЂ¦Р В РЎвЂў Р В Р вЂ Р РЋРІР‚в„–Р В РЎвЂ”Р В РЎвЂўР В Р’В»Р В Р вЂ¦Р В РЎвЂР РЋРІР‚С™Р РЋР Р‰",
                 DiagnosticStatus::Ok,
-                "Выключение останавливает engine и очищает активное состояние.",
+                "Р В РІР‚в„ўР РЋРІР‚в„–Р В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’Вµ Р В РЎвЂўР РЋР С“Р РЋРІР‚С™Р В Р’В°Р В Р вЂ¦Р В Р’В°Р В Р вЂ Р В Р’В»Р В РЎвЂР В Р вЂ Р В Р’В°Р В Р’ВµР РЋРІР‚С™ engine Р В РЎвЂ Р В РЎвЂўР РЋРІР‚РЋР В РЎвЂР РЋРІР‚В°Р В Р’В°Р В Р’ВµР РЋРІР‚С™ Р В Р’В°Р В РЎвЂќР РЋРІР‚С™Р В РЎвЂР В Р вЂ Р В Р вЂ¦Р В РЎвЂўР В Р’Вµ Р РЋР С“Р В РЎвЂўР РЋР С“Р РЋРІР‚С™Р В РЎвЂўР РЋР РЏР В Р вЂ¦Р В РЎвЂР В Р’Вµ.",
             ),
             diag(
                 "strategy_integrity",
-                "Последняя стратегия не повреждена",
+                "Р В РЎСџР В РЎвЂўР РЋР С“Р В Р’В»Р В Р’ВµР В РўвЂР В Р вЂ¦Р РЋР РЏР РЋР РЏ Р РЋР С“Р РЋРІР‚С™Р РЋР вЂљР В Р’В°Р РЋРІР‚С™Р В Р’ВµР В РЎвЂ“Р В РЎвЂР РЋР РЏ Р В Р вЂ¦Р В Р’Вµ Р В РЎвЂ”Р В РЎвЂўР В Р вЂ Р РЋР вЂљР В Р’ВµР В Р’В¶Р В РўвЂР В Р’ВµР В Р вЂ¦Р В Р’В°",
                 DiagnosticStatus::Ok,
-                "Manifest стратегий валиден.",
+                "Manifest Р РЋР С“Р РЋРІР‚С™Р РЋР вЂљР В Р’В°Р РЋРІР‚С™Р В Р’ВµР В РЎвЂ“Р В РЎвЂР В РІвЂћвЂ“ Р В Р вЂ Р В Р’В°Р В Р’В»Р В РЎвЂР В РўвЂР В Р’ВµР В Р вЂ¦.",
             ),
         ])
     }
@@ -424,7 +428,9 @@ impl ServiceClient {
     pub fn read_user_logs(&self) -> Result<String> {
         let path = self.data_root.join("logs").join("user.log");
         if !path.exists() {
-            return Ok("Лог пуст.".to_string());
+            return Ok(
+                "Р В РІР‚С”Р В РЎвЂўР В РЎвЂ“ Р В РЎвЂ”Р РЋРЎвЂњР РЋР С“Р РЋРІР‚С™.".to_string(),
+            );
         }
         fs::read_to_string(&path).map_err(|source| zapret_manager_core::io_error(path, source))
     }
@@ -439,7 +445,7 @@ impl ServiceClient {
         fs::copy(&source, &target)
             .map_err(|source_err| zapret_manager_core::io_error(&target, source_err))?;
         self.log_user(&format!(
-            "Технический лог экспортирован: {}.",
+            "Р В РЎС›Р В Р’ВµР РЋРІР‚В¦Р В Р вЂ¦Р В РЎвЂР РЋРІР‚РЋР В Р’ВµР РЋР С“Р В РЎвЂќР В РЎвЂР В РІвЂћвЂ“ Р В Р’В»Р В РЎвЂўР В РЎвЂ“ Р РЋР РЉР В РЎвЂќР РЋР С“Р В РЎвЂ”Р В РЎвЂўР РЋР вЂљР РЋРІР‚С™Р В РЎвЂР РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’В°Р В Р вЂ¦: {}.",
             target.display()
         ))?;
         Ok(target)
@@ -452,7 +458,7 @@ impl ServiceClient {
     pub fn save_settings(&mut self, settings: AppSettings) -> Result<AppSettings> {
         self.settings = settings;
         self.write_settings()?;
-        self.log_user("Настройки сохранены.")?;
+        self.log_user("Р В РЎСљР В Р’В°Р РЋР С“Р РЋРІР‚С™Р РЋР вЂљР В РЎвЂўР В РІвЂћвЂ“Р В РЎвЂќР В РЎвЂ Р РЋР С“Р В РЎвЂўР РЋРІР‚В¦Р РЋР вЂљР В Р’В°Р В Р вЂ¦Р В Р’ВµР В Р вЂ¦Р РЋРІР‚в„–.")?;
         self.log_debug(
             "info",
             "settings_saved",
@@ -491,7 +497,7 @@ impl ServiceClient {
             &self.data_root.join("strategy-backups"),
             &trusted_sources(),
         )?;
-        self.log_user(&format!("Стратегии обновлены: {}.", result.applied.len()))?;
+        self.log_user(&format!("Р В Р Р‹Р РЋРІР‚С™Р РЋР вЂљР В Р’В°Р РЋРІР‚С™Р В Р’ВµР В РЎвЂ“Р В РЎвЂР В РЎвЂ Р В РЎвЂўР В Р’В±Р В Р вЂ¦Р В РЎвЂўР В Р вЂ Р В Р’В»Р В Р’ВµР В Р вЂ¦Р РЋРІР‚в„–: {}.", result.applied.len()))?;
         self.log_debug(
             "info",
             "strategy_update_applied",
@@ -523,7 +529,7 @@ impl ServiceClient {
             }
         }
 
-        self.log_user(&format!("Rollback стратегий выполнен: {}.", restored))?;
+        self.log_user(&format!("Rollback Р РЋР С“Р РЋРІР‚С™Р РЋР вЂљР В Р’В°Р РЋРІР‚С™Р В Р’ВµР В РЎвЂ“Р В РЎвЂР В РІвЂћвЂ“ Р В Р вЂ Р РЋРІР‚в„–Р В РЎвЂ”Р В РЎвЂўР В Р’В»Р В Р вЂ¦Р В Р’ВµР В Р вЂ¦: {}.", restored))?;
         self.log_debug(
             "info",
             "strategy_update_rollback",
@@ -569,7 +575,7 @@ impl ServiceClient {
                     return EngineReadiness {
                         ready: false,
                         version: "unknown".to_string(),
-                        message: format!("Engine manifest не найден или повреждён: {err}."),
+                        message: format!("Engine manifest Р В Р вЂ¦Р В Р’Вµ Р В Р вЂ¦Р В Р’В°Р В РІвЂћвЂ“Р В РўвЂР В Р’ВµР В Р вЂ¦ Р В РЎвЂР В Р’В»Р В РЎвЂ Р В РЎвЂ”Р В РЎвЂўР В Р вЂ Р РЋР вЂљР В Р’ВµР В Р’В¶Р В РўвЂР РЋРІР‚ВР В Р вЂ¦: {err}."),
                     }
                 }
             };
@@ -579,7 +585,7 @@ impl ServiceClient {
                 ready: false,
                 version: manifest.engine_version,
                 message:
-                    "Реальный engine не подключён. Доступ к Discord/YouTube/Telegram не изменится."
+                    "Р В Р’В Р В Р’ВµР В Р’В°Р В Р’В»Р РЋР Р‰Р В Р вЂ¦Р РЋРІР‚в„–Р В РІвЂћвЂ“ engine Р В Р вЂ¦Р В Р’Вµ Р В РЎвЂ”Р В РЎвЂўР В РўвЂР В РЎвЂќР В Р’В»Р РЋР вЂ№Р РЋРІР‚РЋР РЋРІР‚ВР В Р вЂ¦. Р В РІР‚СњР В РЎвЂўР РЋР С“Р РЋРІР‚С™Р РЋРЎвЂњР В РЎвЂ” Р В РЎвЂќ Discord/YouTube/Telegram Р В Р вЂ¦Р В Р’Вµ Р В РЎвЂР В Р’В·Р В РЎВР В Р’ВµР В Р вЂ¦Р В РЎвЂР РЋРІР‚С™Р РЋР С“Р РЋР РЏ."
                         .to_string(),
             };
         }
@@ -588,7 +594,7 @@ impl ServiceClient {
             return EngineReadiness {
                 ready: false,
                 version: manifest.engine_version,
-                message: format!("Engine manifest не прошёл trusted-source проверку: {err}."),
+                message: format!("Engine manifest Р В Р вЂ¦Р В Р’Вµ Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР РЋРІвЂљВ¬Р РЋРІР‚ВР В Р’В» trusted-source Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’ВµР РЋР вЂљР В РЎвЂќР РЋРЎвЂњ: {err}."),
             };
         }
 
@@ -603,7 +609,7 @@ impl ServiceClient {
         EngineReadiness {
             ready: true,
             version: manifest.engine_version,
-            message: "Engine найден, trusted-source и hash проверены.".to_string(),
+            message: "Engine Р В Р вЂ¦Р В Р’В°Р В РІвЂћвЂ“Р В РўвЂР В Р’ВµР В Р вЂ¦, trusted-source Р В РЎвЂ hash Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’ВµР РЋР вЂљР В Р’ВµР В Р вЂ¦Р РЋРІР‚в„–.".to_string(),
         }
     }
 
@@ -630,30 +636,30 @@ impl ServiceClient {
     fn start_engine(&self, runtime_dir: &Path) -> Result<EngineProcess> {
         let strategy = normalized_engine_strategy(&self.settings.engine_strategy);
         let bat = runtime_dir.join(strategy_bat_file(&strategy));
+        let launch = build_winws_launch(&bat, runtime_dir)?;
         self.log_debug(
             "info",
-            "engine_start_flowseal_bat",
-            &format!("bat={}, strategy={}", bat.display(), strategy),
+            "engine_start_winws_direct",
+            &format!(
+                "bat={}, strategy={}, exe={}, args={}",
+                bat.display(),
+                strategy,
+                launch.exe_path.display(),
+                launch.args.len()
+            ),
         )?;
 
-        let before = winws_pids();
-        launch_strategy_bat(&bat, runtime_dir)?;
-        let pid = wait_for_new_winws_pid(&before, std::time::Duration::from_secs(8))
-            .ok_or_else(|| {
-                ZapretError::Operation(format!(
-                    "Flowseal strategy запустилась, но winws.exe не найден. Проверьте UAC/WinDivert/антивирус. Лог запуска: {}",
-                    runtime_dir.join("engine-launch.log").display()
-                ))
-            })?;
+        let (pid, child) = launch_winws(&launch)?;
+        std::thread::sleep(std::time::Duration::from_millis(700));
 
         if !pid_is_running(pid) {
             return Err(ZapretError::Operation(
-                "Engine был запущен, но процесс сразу завершился. Проверьте WinDivert/антивирус."
+                "Engine Р В Р’В±Р РЋРІР‚в„–Р В Р’В» Р В Р’В·Р В Р’В°Р В РЎвЂ”Р РЋРЎвЂњР РЋРІР‚В°Р В Р’ВµР В Р вЂ¦, Р В Р вЂ¦Р В РЎвЂў Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР РЋРІР‚В Р В Р’ВµР РЋР С“Р РЋР С“ Р РЋР С“Р РЋР вЂљР В Р’В°Р В Р’В·Р РЋРЎвЂњ Р В Р’В·Р В Р’В°Р В Р вЂ Р В Р’ВµР РЋР вЂљР РЋРІвЂљВ¬Р В РЎвЂР В Р’В»Р РЋР С“Р РЋР РЏ. Р В РЎСџР РЋР вЂљР В РЎвЂўР В Р вЂ Р В Р’ВµР РЋР вЂљР РЋР Р‰Р РЋРІР‚С™Р В Р’Вµ WinDivert/Р В Р’В°Р В Р вЂ¦Р РЋРІР‚С™Р В РЎвЂР В Р вЂ Р В РЎвЂР РЋР вЂљР РЋРЎвЂњР РЋР С“."
                     .to_string(),
             ));
         }
         Ok(EngineProcess {
-            child: None,
+            child,
             pid,
             runtime_dir: runtime_dir.to_path_buf(),
         })
@@ -696,89 +702,169 @@ fn strategy_bat_file(strategy: &str) -> &'static str {
     }
 }
 
-fn launch_strategy_bat(bat: &Path, work_dir: &Path) -> Result<()> {
-    let launcher = write_launch_wrapper(bat, work_dir)?;
+struct WinwsLaunch {
+    exe_path: PathBuf,
+    work_dir: PathBuf,
+    args: Vec<String>,
+    log_path: PathBuf,
+}
+
+fn build_winws_launch(bat: &Path, work_dir: &Path) -> Result<WinwsLaunch> {
+    let log = work_dir.join("engine-launch.log");
+    let strategy_source =
+        fs::read_to_string(bat).map_err(|source| zapret_manager_core::io_error(bat, source))?;
+    let command_line = extract_winws_command(&strategy_source).ok_or_else(|| {
+        ZapretError::Operation(format!("winws.exe command not found in {}", bat.display()))
+    })?;
+    let bin_dir = work_dir.join("bin");
+    let lists_dir = work_dir.join("lists");
+    let expanded = expand_strategy_vars(&command_line, &bin_dir, &lists_dir);
+    let mut parts = split_windows_args(&expanded);
+    if parts.is_empty() {
+        return Err(ZapretError::Operation(format!(
+            "Flowseal strategy has empty winws command: {}",
+            bat.display()
+        )));
+    }
+
+    let exe_path = PathBuf::from(parts.remove(0));
+    if exe_path.file_name().and_then(|name| name.to_str()) != Some("winws.exe") {
+        return Err(ZapretError::Operation(format!(
+            "Flowseal strategy resolved unsupported executable: {}",
+            exe_path.display()
+        )));
+    }
+    if !exe_path.is_file() {
+        return Err(ZapretError::Operation(format!(
+            "winws.exe not found in runtime engine: {}",
+            exe_path.display()
+        )));
+    }
+
+    let log_text = format!(
+        "Starting winws directly\nstrategy={}\nexe={}\nargs={}\n\n{}\n",
+        bat.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("strategy"),
+        exe_path.display(),
+        parts.len(),
+        expanded
+    );
+    fs::write(&log, log_text).map_err(|source| zapret_manager_core::io_error(&log, source))?;
+
+    Ok(WinwsLaunch {
+        exe_path,
+        work_dir: bin_dir,
+        args: parts,
+        log_path: log,
+    })
+}
+
+fn extract_winws_command(source: &str) -> Option<String> {
+    let mut command = String::new();
+    let mut collecting = false;
+
+    for line in source.lines() {
+        let mut current = line.trim().to_string();
+        if !collecting && !current.to_ascii_lowercase().contains("winws.exe") {
+            continue;
+        }
+
+        if !collecting {
+            current = current.replace("start \"zapret: %~n0\" /min ", "");
+            collecting = true;
+        }
+
+        let continued = current.ends_with('^');
+        if continued {
+            current.pop();
+        }
+        command.push_str(current.trim_end());
+        command.push(' ');
+
+        if !continued {
+            break;
+        }
+    }
+
+    let command = command.trim().to_string();
+    if command.is_empty() {
+        None
+    } else {
+        Some(command)
+    }
+}
+
+fn expand_strategy_vars(command: &str, bin_dir: &Path, lists_dir: &Path) -> String {
+    let bin = path_var(bin_dir);
+    let lists = path_var(lists_dir);
+    command
+        .replace("%BIN%", &bin)
+        .replace("%LISTS%", &lists)
+        .replace("%GameFilterTCP%", "65535")
+        .replace("%GameFilterUDP%", "65535")
+}
+
+fn path_var(path: &Path) -> String {
+    let mut value = path.to_string_lossy().to_string();
+    if !value.ends_with('\\') && !value.ends_with('/') {
+        value.push('\\');
+    }
+    value
+}
+
+fn split_windows_args(command: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+
+    for ch in command.chars() {
+        match ch {
+            '"' => in_quotes = !in_quotes,
+            ch if ch.is_whitespace() && !in_quotes => {
+                if !current.is_empty() {
+                    args.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    if !current.is_empty() {
+        args.push(current);
+    }
+    args
+}
+
+fn launch_winws(launch: &WinwsLaunch) -> Result<(u32, Option<Child>)> {
     if is_elevated() {
-        let mut command = Command::new("cmd.exe");
+        let stdout = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&launch.log_path)
+            .map_err(|source| zapret_manager_core::io_error(&launch.log_path, source))?;
+        let stderr = stdout
+            .try_clone()
+            .map_err(|source| zapret_manager_core::io_error(&launch.log_path, source))?;
+
+        let mut command = Command::new(&launch.exe_path);
         command
-            .current_dir(work_dir)
-            .args(["/C", &launcher.to_string_lossy()])
+            .current_dir(&launch.work_dir)
+            .args(&launch.args)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr));
         #[cfg(windows)]
         command.creation_flags(CREATE_NO_WINDOW);
         let child = command
             .spawn()
-            .map_err(|source| zapret_manager_core::io_error(bat, source))?;
-        drop(child);
-        return Ok(());
+            .map_err(|source| zapret_manager_core::io_error(&launch.exe_path, source))?;
+        let pid = child.id();
+        return Ok((pid, Some(child)));
     }
 
-    runas_process(
-        Path::new("cmd.exe"),
-        work_dir,
-        &["/C".to_string(), launcher.to_string_lossy().to_string()],
-    )?;
-    Ok(())
-}
-
-fn write_launch_wrapper(bat: &Path, work_dir: &Path) -> Result<PathBuf> {
-    let launcher = work_dir.join("manager-launch.cmd");
-    let strategy = work_dir.join("manager-strategy.cmd");
-    let log = work_dir.join("engine-launch.log");
-    let strategy_source =
-        fs::read_to_string(bat).map_err(|source| zapret_manager_core::io_error(bat, source))?;
-    let strategy_script = sanitize_strategy_script(&strategy_source);
-    if strategy_script == strategy_source {
-        return Err(ZapretError::Operation(format!(
-            "Flowseal strategy has unsupported launch format: {}",
-            bat.display()
-        )));
-    }
-    fs::write(&strategy, strategy_script)
-        .map_err(|source| zapret_manager_core::io_error(&strategy, source))?;
-
-    let script = format!(
-        "@echo off\r\ncd /d \"{}\"\r\necho [%date% %time%] Starting {} > \"{}\"\r\ncall \"{}\" >> \"{}\" 2>&1\r\necho [%date% %time%] Strategy exited with %errorlevel% >> \"{}\"\r\n",
-        work_dir.display(),
-        bat.file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("strategy"),
-        log.display(),
-        strategy.display(),
-        log.display(),
-        log.display()
-    );
-    fs::write(&launcher, script)
-        .map_err(|source| zapret_manager_core::io_error(&launcher, source))?;
-    Ok(launcher)
-}
-
-fn sanitize_strategy_script(source: &str) -> String {
-    let mut output = String::new();
-    let mut inserted_fallbacks = false;
-
-    for line in source.lines() {
-        let normalized = line.trim().to_ascii_lowercase();
-        if normalized.starts_with("call service.bat status_zapret")
-            || normalized.starts_with("call service.bat check_updates")
-            || normalized.starts_with("call service.bat load_game_filter")
-            || normalized.starts_with("call service.bat load_user_lists")
-        {
-            if !inserted_fallbacks {
-                output.push_str("set \"GameFilterTCP=65535\"\r\n");
-                output.push_str("set \"GameFilterUDP=65535\"\r\n");
-                inserted_fallbacks = true;
-            }
-            continue;
-        }
-
-        output.push_str(&line.replace("start \"zapret: %~n0\" /min ", ""));
-        output.push_str("\r\n");
-    }
-
-    output
+    let pid = runas_process(&launch.exe_path, &launch.work_dir, &launch.args)?;
+    Ok((pid, None))
 }
 
 struct EngineReadiness {
@@ -798,54 +884,23 @@ fn normalized_engine_strategy(strategy: &str) -> String {
     }
 }
 
-fn wait_for_new_winws_pid(before: &[u32], timeout: std::time::Duration) -> Option<u32> {
-    let started = std::time::Instant::now();
-    loop {
-        let after = winws_pids();
-        if let Some(pid) = after.iter().copied().find(|pid| !before.contains(pid)) {
-            return Some(pid);
-        }
-        if started.elapsed() >= timeout {
-            return None;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(300));
-    }
-}
-
+#[cfg(windows)]
 fn pid_is_running(pid: u32) -> bool {
-    let mut command = Command::new("tasklist.exe");
-    command.args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]);
-    #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
-    command
-        .output()
-        .map(|output| {
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .any(|line| line.contains(&pid.to_string()))
-        })
-        .unwrap_or(false)
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return false;
+    }
+    let mut exit_code = 0;
+    let ok = unsafe { GetExitCodeProcess(handle, &mut exit_code) };
+    unsafe {
+        CloseHandle(handle);
+    }
+    ok != 0 && exit_code == STILL_ACTIVE as u32
 }
 
-fn winws_pids() -> Vec<u32> {
-    let mut command = Command::new("tasklist.exe");
-    command.args(["/FI", "IMAGENAME eq winws.exe", "/FO", "CSV", "/NH"]);
-    #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
-    let Ok(output) = command.output() else {
-        return Vec::new();
-    };
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| {
-            let mut fields = line.split(',');
-            let _image = fields.next()?;
-            fields
-                .next()
-                .map(|pid| pid.trim().trim_matches('"').parse::<u32>().ok())
-                .flatten()
-        })
-        .collect()
+#[cfg(not(windows))]
+fn pid_is_running(_pid: u32) -> bool {
+    false
 }
 
 #[cfg(windows)]
@@ -882,7 +937,7 @@ fn runas_process(exe: &Path, work_dir: &Path, args: &[String]) -> Result<u32> {
     let ok = unsafe { ShellExecuteExW(&mut info) };
     if ok == 0 || info.hProcess.is_null() {
         return Err(ZapretError::Operation(
-            "UAC запуск engine отменён или Windows не смог запустить winws.exe.".to_string(),
+            "UAC Р В Р’В·Р В Р’В°Р В РЎвЂ”Р РЋРЎвЂњР РЋР С“Р В РЎвЂќ engine Р В РЎвЂўР РЋРІР‚С™Р В РЎВР В Р’ВµР В Р вЂ¦Р РЋРІР‚ВР В Р вЂ¦ Р В РЎвЂР В Р’В»Р В РЎвЂ Windows Р В Р вЂ¦Р В Р’Вµ Р РЋР С“Р В РЎВР В РЎвЂўР В РЎвЂ“ Р В Р’В·Р В Р’В°Р В РЎвЂ”Р РЋРЎвЂњР РЋР С“Р РЋРІР‚С™Р В РЎвЂР РЋРІР‚С™Р РЋР Р‰ winws.exe.".to_string(),
         ));
     }
 
@@ -892,7 +947,7 @@ fn runas_process(exe: &Path, work_dir: &Path, args: &[String]) -> Result<u32> {
     }
     if pid == 0 {
         return Err(ZapretError::Operation(
-            "Engine запущен, но Windows не вернул PID процесса.".to_string(),
+            "Engine Р В Р’В·Р В Р’В°Р В РЎвЂ”Р РЋРЎвЂњР РЋРІР‚В°Р В Р’ВµР В Р вЂ¦, Р В Р вЂ¦Р В РЎвЂў Windows Р В Р вЂ¦Р В Р’Вµ Р В Р вЂ Р В Р’ВµР РЋР вЂљР В Р вЂ¦Р РЋРЎвЂњР В Р’В» PID Р В РЎвЂ”Р РЋР вЂљР В РЎвЂўР РЋРІР‚В Р В Р’ВµР РЋР С“Р РЋР С“Р В Р’В°.".to_string(),
         ));
     }
     Ok(pid)
@@ -917,7 +972,7 @@ fn quote_cmd_arg(arg: &str) -> String {
     if !arg.chars().any(|ch| ch.is_whitespace() || ch == '"') {
         return arg.to_string();
     }
-    let escaped = arg.replace('\\', "\\\\").replace('"', "\\\"");
+    let escaped = arg.replace('"', "\\\"");
     format!("\"{escaped}\"")
 }
 
@@ -933,20 +988,45 @@ fn stop_pid(pid: u32, context: &Path) -> Result<()> {
     if !pid_is_running(pid) {
         return Ok(());
     }
-    let mut command = Command::new("taskkill.exe");
-    command.args(["/PID", &pid.to_string(), "/T", "/F"]);
-    #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
-    let status = command
-        .status()
-        .map_err(|source| zapret_manager_core::io_error(context, source))?;
-    if status.success() || !pid_is_running(pid) {
+    terminate_pid(pid, context)
+}
+
+#[cfg(windows)]
+fn terminate_pid(pid: u32, _context: &Path) -> Result<()> {
+    let handle = unsafe {
+        OpenProcess(
+            PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        )
+    };
+    if handle.is_null() {
+        return if pid_is_running(pid) {
+            Err(ZapretError::Operation(format!(
+                "Failed to open engine PID {pid} for stop."
+            )))
+        } else {
+            Ok(())
+        };
+    }
+    let ok = unsafe { TerminateProcess(handle, 0) };
+    unsafe {
+        CloseHandle(handle);
+    }
+    if ok != 0 || !pid_is_running(pid) {
         Ok(())
     } else {
         Err(ZapretError::Operation(format!(
-            "Не удалось остановить engine PID {pid}."
+            "Failed to stop engine PID {pid}."
         )))
     }
+}
+
+#[cfg(not(windows))]
+fn terminate_pid(pid: u32, _context: &Path) -> Result<()> {
+    Err(ZapretError::Operation(format!(
+        "Failed to stop engine PID {pid}: Windows only."
+    )))
 }
 
 fn cleanup_runtime_dir_best_effort(path: &Path) {
@@ -968,10 +1048,11 @@ fn cleanup_old_runtime_dirs(runtime_root: &Path, keep: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_strategy_script;
+    use super::{expand_strategy_vars, extract_winws_command, split_windows_args};
+    use std::path::Path;
 
     #[test]
-    fn strategy_sanitizer_removes_service_bat_dependencies() {
+    fn extracts_direct_winws_command_from_strategy() {
         let source = r#"@echo off
 call service.bat status_zapret
 call service.bat check_updates
@@ -980,12 +1061,18 @@ call service.bat load_user_lists
 start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
 "#;
 
-        let sanitized = sanitize_strategy_script(source);
+        let command = extract_winws_command(source).expect("command");
+        let expanded = expand_strategy_vars(
+            &command,
+            Path::new("C:\\Runtime\\bin"),
+            Path::new("C:\\Runtime\\lists"),
+        );
+        let args = split_windows_args(&expanded);
 
-        assert!(!sanitized.contains("service.bat"));
-        assert!(!sanitized.contains("start \"zapret: %~n0\" /min"));
-        assert!(sanitized.contains("set \"GameFilterTCP=65535\""));
-        assert!(sanitized.contains("\"%BIN%winws.exe\" --wf-tcp=%GameFilterTCP%"));
+        assert_eq!(args[0], "C:\\Runtime\\bin\\winws.exe");
+        assert_eq!(args[1], "--wf-tcp=65535");
+        assert!(!expanded.contains("service.bat"));
+        assert!(!expanded.contains("start \"zapret: %~n0\" /min"));
     }
 }
 
@@ -1012,7 +1099,9 @@ fn diag(id: &str, title: &str, status: DiagnosticStatus, action: &str) -> Diagno
         status,
         problem: match status {
             DiagnosticStatus::Ok => None,
-            _ => Some(format!("Проблема: {title}.")),
+            _ => Some(format!(
+                "Р В РЎСџР РЋР вЂљР В РЎвЂўР В Р’В±Р В Р’В»Р В Р’ВµР В РЎВР В Р’В°: {title}."
+            )),
         },
         action: Some(action.to_string()),
     }
