@@ -21,6 +21,7 @@ Current test installer:
 
 ## Recent Important Commits
 
+- `c93d194 docs: add project context`
 - `62c15aa ci: use node tauri cli`
 - `1b8a843 engine: cleanup runtime lifecycle`
 - `28f8de3 ci: separate windows build`
@@ -63,10 +64,10 @@ Local checks passed on 2026-06-26:
 - Tauri installer build from `app/tauri`
 - Test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
 
-GitHub Actions on latest pushed commit:
+GitHub Actions:
 
-- CI: success
-- Build Windows: success
+- Docs/context commit `c93d194`: CI success.
+- Latest code/build commit `62c15aa`: CI success and Build Windows success.
 
 ## Remaining Before Stable v1.2
 
