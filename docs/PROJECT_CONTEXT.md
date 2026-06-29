@@ -21,6 +21,7 @@ Current test installer:
 
 ## Recent Important Commits
 
+- `cc1b3ef engine: add messaging profile diagnostics`
 - `bc0f094 engine: improve telegram whatsapp diagnostics`
 - `c93d194 docs: add project context`
 - `62c15aa ci: use node tauri cli`
@@ -93,6 +94,8 @@ Local checks passed on 2026-06-29 for profile-specific Telegram/WhatsApp block:
 - `corepack pnpm --dir app/frontend build`
 - `cargo tauri build`
 - Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
+- Code commit `cc1b3ef` was pushed to `main`.
+- Actions status for `cc1b3ef` is not confirmed from this environment: GitHub API was unreachable from PowerShell, although `git push` succeeded.
 
 GitHub Actions:
 
