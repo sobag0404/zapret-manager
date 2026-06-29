@@ -21,6 +21,7 @@ Current test installer:
 
 ## Recent Important Commits
 
+- `e03322b diagnostics: prune strategies and add live status`
 - `7820515 engine: disable messaging argv injection`
 - `cc1b3ef engine: add messaging profile diagnostics`
 - `bc0f094 engine: improve telegram whatsapp diagnostics`
@@ -125,6 +126,7 @@ Strategy/live-diagnostics checks passed on 2026-06-29:
 - `corepack pnpm --dir app/frontend build`
 - `cargo tauri build`
 - Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
+- Code commit `e03322b` pushed to `main`; CI and Build Windows completed successfully.
 
 GitHub Actions:
 
