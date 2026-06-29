@@ -789,13 +789,12 @@ impl ServiceClient {
             "info",
             "engine_start_winws_direct",
             &format!(
-                "stage=start_engine, bat={}, strategy={}, profiles={}, exe={}, args={}, profile_filters={}, hostlists={}, ipsets={}, log={}",
+                "stage=start_engine, bat={}, strategy={}, profiles={}, exe={}, args={}, hostlists={}, ipsets={}, log={}",
                 bat.display(),
                 strategy,
                 profiles.join(","),
                 launch.exe_path.display(),
                 launch.args.len(),
-                launch.profile_filters.join(","),
                 launch.hostlists.join(","),
                 launch.ipsets.join(","),
                 launch.log_path.display()
@@ -907,7 +906,6 @@ struct WinwsLaunch {
     log_path: PathBuf,
     hostlists: Vec<String>,
     ipsets: Vec<String>,
-    profile_filters: Vec<String>,
 }
 
 fn build_winws_launch(
@@ -946,8 +944,6 @@ fn build_winws_launch(
             exe_path.display()
         )));
     }
-    let profile_filters =
-        append_profile_filters(&mut parts, &lists_dir, strategy, selected_profiles);
     let hostlists = collect_hostlists(&parts);
     let ipsets = collect_ipsets(&parts);
     let profile_report = profile_launch_report(selected_profiles, strategy, &hostlists, &ipsets);
@@ -962,7 +958,7 @@ fn build_winws_launch(
     );
 
     let log_text = format!(
-        "Starting winws directly\nstrategy={}\nnormalized_strategy={}\nselected_profiles={}\nprofile_strategy_candidates={}\nprofile_hostlist_coverage={}\nprofile_filters_added={}\nused_hostlists={}\nused_ipsets={}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
+        "Starting winws directly\nstrategy={}\nnormalized_strategy={}\nselected_profiles={}\nprofile_strategy_candidates={}\nprofile_hostlist_coverage={}\nprofile_filters_added=disabled_safe_mode\nused_hostlists={}\nused_ipsets={}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
         bat.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("strategy"),
@@ -970,7 +966,6 @@ fn build_winws_launch(
         normalized_profiles(selected_profiles).join(","),
         profile_report.strategy_candidates,
         profile_report.hostlist_coverage,
-        profile_filters.join(","),
         hostlists.join(","),
         ipsets.join(","),
         is_elevated(),
@@ -991,7 +986,6 @@ fn build_winws_launch(
         log_path: log,
         hostlists,
         ipsets,
-        profile_filters,
     })
 }
 
@@ -1055,144 +1049,6 @@ fn profile_launch_report(
             hostlist_coverage
         },
     }
-}
-
-fn append_profile_filters(
-    args: &mut Vec<String>,
-    lists_dir: &Path,
-    strategy: &str,
-    selected_profiles: &[String],
-) -> Vec<String> {
-    let profiles = normalized_profiles(selected_profiles);
-    let mut added = Vec::new();
-    let include_telegram = profiles.iter().any(|profile| profile == "telegram");
-    let include_whatsapp = profiles.iter().any(|profile| profile == "whatsapp");
-
-    if include_telegram {
-        append_telegram_filters(args, lists_dir, strategy);
-        added.push("telegram_tcp_ipset_80_88_443_5222".to_string());
-        added.push("telegram_udp_ipset_443".to_string());
-        added.push("telegram_hostlist_80_443".to_string());
-    }
-
-    if include_whatsapp {
-        append_whatsapp_filters(args, lists_dir, strategy);
-        added.push("whatsapp_hostlist_80_443_5222_5223_5228_5242".to_string());
-    }
-
-    added
-}
-
-fn append_telegram_filters(args: &mut Vec<String>, lists_dir: &Path, strategy: &str) {
-    let telegram_list = lists_dir
-        .join("list-telegram.txt")
-        .to_string_lossy()
-        .to_string();
-    let ipset_all = lists_dir
-        .join("ipset-all.txt")
-        .to_string_lossy()
-        .to_string();
-    let list_exclude = lists_dir
-        .join("list-exclude.txt")
-        .to_string_lossy()
-        .to_string();
-    let list_exclude_user = lists_dir
-        .join("list-exclude-user.txt")
-        .to_string_lossy()
-        .to_string();
-    let ipset_exclude = lists_dir
-        .join("ipset-exclude.txt")
-        .to_string_lossy()
-        .to_string();
-    let ipset_exclude_user = lists_dir
-        .join("ipset-exclude-user.txt")
-        .to_string_lossy()
-        .to_string();
-
-    args.push("--new".to_string());
-    args.push("--filter-tcp=80,443".to_string());
-    args.push(format!("--hostlist={telegram_list}"));
-    args.push(format!("--hostlist-exclude={list_exclude}"));
-    args.push(format!("--hostlist-exclude={list_exclude_user}"));
-    args.extend(strategy_tcp_args(strategy, false));
-
-    args.push("--new".to_string());
-    args.push("--filter-tcp=80,88,443,5222".to_string());
-    args.push(format!("--ipset={ipset_all}"));
-    args.push(format!("--ipset-exclude={ipset_exclude}"));
-    args.push(format!("--ipset-exclude={ipset_exclude_user}"));
-    args.extend(strategy_tcp_args(strategy, true));
-
-    args.push("--new".to_string());
-    args.push("--filter-udp=443".to_string());
-    args.push(format!("--ipset={ipset_all}"));
-    args.push(format!("--ipset-exclude={ipset_exclude}"));
-    args.push(format!("--ipset-exclude={ipset_exclude_user}"));
-    args.extend(strategy_udp_args(strategy));
-}
-
-fn append_whatsapp_filters(args: &mut Vec<String>, lists_dir: &Path, strategy: &str) {
-    let whatsapp_list = lists_dir
-        .join("list-whatsapp.txt")
-        .to_string_lossy()
-        .to_string();
-    let list_exclude = lists_dir
-        .join("list-exclude.txt")
-        .to_string_lossy()
-        .to_string();
-    let list_exclude_user = lists_dir
-        .join("list-exclude-user.txt")
-        .to_string_lossy()
-        .to_string();
-
-    args.push("--new".to_string());
-    args.push("--filter-tcp=80,443,5222,5223,5228,5242".to_string());
-    args.push(format!("--hostlist={whatsapp_list}"));
-    args.push(format!("--hostlist-exclude={list_exclude}"));
-    args.push(format!("--hostlist-exclude={list_exclude_user}"));
-    args.extend(strategy_tcp_args(strategy, true));
-}
-
-fn strategy_tcp_args(strategy: &str, any_protocol: bool) -> Vec<String> {
-    let mut args = match strategy {
-        "alt2" | "alt6" | "alt11" | "alt12" => vec![
-            "--dpi-desync=multisplit",
-            "--dpi-desync-split-seqovl=652",
-            "--dpi-desync-split-pos=2",
-        ],
-        "alt3" | "alt7" | "alt9" => {
-            vec!["--dpi-desync=fake,hostfakesplit", "--dpi-desync-fooling=ts"]
-        }
-        "simple_fake" | "simple_fake_alt" | "simple_fake_alt2" | "fake_tls_auto"
-        | "fake_tls_auto_alt" | "fake_tls_auto_alt2" | "fake_tls_auto_alt3" | "alt10" => {
-            vec!["--dpi-desync=fake", "--dpi-desync-repeats=6"]
-        }
-        _ => vec![
-            "--dpi-desync=fake,fakedsplit",
-            "--dpi-desync-repeats=6",
-            "--dpi-desync-fooling=ts",
-        ],
-    }
-    .into_iter()
-    .map(str::to_string)
-    .collect::<Vec<_>>();
-
-    if any_protocol {
-        args.push("--dpi-desync-any-protocol=1".to_string());
-    }
-    args
-}
-
-fn strategy_udp_args(strategy: &str) -> Vec<String> {
-    let repeats = match strategy {
-        "alt11" | "alt12" => "11",
-        "alt7" | "simple_fake_alt" => "10",
-        _ => "6",
-    };
-    vec![
-        "--dpi-desync=fake".to_string(),
-        format!("--dpi-desync-repeats={repeats}"),
-    ]
 }
 
 fn normalized_profiles(selected_profiles: &[String]) -> Vec<String> {
@@ -1937,30 +1793,15 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             .hostlists
             .iter()
             .any(|hostlist| hostlist.ends_with("list-general.txt")));
-        assert!(launch
-            .hostlists
-            .iter()
-            .any(|hostlist| hostlist.ends_with("list-telegram.txt")));
-        assert!(launch
-            .hostlists
-            .iter()
-            .any(|hostlist| hostlist.ends_with("list-whatsapp.txt")));
-        assert!(launch
-            .ipsets
-            .iter()
-            .any(|ipset| ipset.ends_with("ipset-all.txt")));
-        assert!(launch
-            .profile_filters
-            .contains(&"telegram_tcp_ipset_80_88_443_5222".to_string()));
         assert!(log.contains("work_dir="));
         assert!(log.contains("selected_profiles=telegram,whatsapp"));
         assert!(log.contains("profile_strategy_candidates=telegram="));
-        assert!(log.contains("profile_filters_added="));
+        assert!(log.contains("profile_filters_added=disabled_safe_mode"));
         assert!(log.contains("used_hostlists="));
         assert!(log.contains("used_ipsets="));
         assert!(log.contains("windivert_dll=true"));
         assert!(log.contains("windivert_sys=true"));
-        assert!(log.contains("--filter-tcp=80,88,443,5222"));
+        assert!(log.contains("argv=1"));
         assert!(log.contains("command="));
 
         let _ = fs::remove_dir_all(root);
@@ -1974,10 +1815,7 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
     #[test]
     fn profile_report_tracks_telegram_whatsapp_coverage() {
         let profiles = vec!["common".to_string()];
-        let hostlists = vec![
-            "C:\\Runtime\\lists\\list-general-user.txt".to_string(),
-            "C:\\Runtime\\lists\\list-telegram.txt".to_string(),
-        ];
+        let hostlists = vec!["C:\\Runtime\\lists\\list-general-user.txt".to_string()];
         let ipsets = vec!["C:\\Runtime\\lists\\ipset-all.txt".to_string()];
         let report = profile_launch_report(&profiles, "alt5", &hostlists, &ipsets);
 
@@ -1990,7 +1828,7 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             .contains("covered_by_list_general_user=true"));
         assert!(report
             .hostlist_coverage
-            .contains("covered_by_profile_list=true"));
+            .contains("covered_by_profile_list=false"));
         assert!(report.hostlist_coverage.contains("covered_by_ipset=true"));
     }
 
