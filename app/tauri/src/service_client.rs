@@ -869,7 +869,7 @@ impl ServiceClient {
                 );
                 cleanup_runtime_dir_best_effort(runtime_dir);
                 return Err(ZapretError::Operation(format!(
-                    "Engine сразу завершился с кодом {:?}. Подробности: {}",
+                    "Engine сразу завершился с кодом {:?}. В engine-launch.log есть preflight и argv_list. Если ошибка повторится, экспортируйте diagnostic-export.txt. Лог запуска: {}",
                     status.code(),
                     launch.log_path.display()
                 )));
@@ -887,7 +887,7 @@ impl ServiceClient {
             );
             cleanup_runtime_dir_best_effort(runtime_dir);
             return Err(ZapretError::Operation(format!(
-                "Engine был запущен, но процесс сразу завершился. Exit code: {:?}. Проверьте WinDivert/UAC/антивирус. Лог запуска: {}",
+                "Engine был запущен, но процесс сразу завершился. Exit code: {:?}. В engine-launch.log есть preflight и argv_list; экспортируйте diagnostic-export.txt. Проверьте WinDivert/UAC/антивирус. Лог запуска: {}",
                 exit_code,
                 launch.log_path.display()
             )));
@@ -963,6 +963,12 @@ struct WinwsLaunch {
     ipsets: Vec<String>,
 }
 
+struct LaunchPreflight {
+    ok: bool,
+    report: String,
+    error: Option<String>,
+}
+
 fn build_winws_launch(
     bat: &Path,
     work_dir: &Path,
@@ -1002,6 +1008,8 @@ fn build_winws_launch(
     let hostlists = collect_hostlists(&parts);
     let ipsets = collect_ipsets(&parts);
     let profile_report = profile_launch_report(selected_profiles, strategy, &hostlists, &ipsets);
+    let preflight = validate_launch_preflight(&exe_path, &bin_dir, &parts);
+    let argv_lines = format_argv_lines(&exe_path, &parts);
     let full_command = format!(
         "{} {}",
         exe_path.display(),
@@ -1032,7 +1040,18 @@ fn build_winws_launch(
         parts.len(),
         full_command
     );
+    let log_text = format!(
+        "{log_text}preflight_ok={}\npreflight_report_begin\n{}\npreflight_report_end\nargv_list_begin\n{}\nargv_list_end\n\n",
+        preflight.ok, preflight.report, argv_lines
+    );
     fs::write(&log, log_text).map_err(|source| zapret_manager_core::io_error(&log, source))?;
+
+    if let Some(error) = preflight.error {
+        return Err(ZapretError::Operation(format!(
+            "Engine preflight failed: {error}. Лог запуска: {}",
+            log.display()
+        )));
+    }
 
     Ok(WinwsLaunch {
         exe_path,
@@ -1042,6 +1061,135 @@ fn build_winws_launch(
         hostlists,
         ipsets,
     })
+}
+
+fn validate_launch_preflight(exe_path: &Path, work_dir: &Path, args: &[String]) -> LaunchPreflight {
+    let mut lines = Vec::new();
+    let mut failures = Vec::new();
+
+    push_file_check(&mut lines, &mut failures, "exe", exe_path);
+    push_file_check(
+        &mut lines,
+        &mut failures,
+        "windivert_dll",
+        &work_dir.join("WinDivert.dll"),
+    );
+    push_file_check(
+        &mut lines,
+        &mut failures,
+        "windivert_sys",
+        &work_dir.join("WinDivert64.sys"),
+    );
+    push_file_check(
+        &mut lines,
+        &mut failures,
+        "cygwin_dll",
+        &work_dir.join("cygwin1.dll"),
+    );
+
+    for (index, arg) in args.iter().enumerate() {
+        if arg.trim().is_empty() {
+            failures.push(format!("arg[{index}] is empty"));
+            lines.push(format!("arg_empty[{index}]=true"));
+        }
+        if arg.contains('"') {
+            failures.push(format!("arg[{index}] contains raw quote after parsing"));
+            lines.push(format!("arg_raw_quote[{index}]=true value={arg}"));
+        }
+    }
+
+    for (source, path) in referenced_launch_files(args) {
+        if path.as_os_str().is_empty() {
+            failures.push(format!("{source} has empty path"));
+            lines.push(format!("referenced_file_empty source={source}"));
+            continue;
+        }
+        let exists = path.is_file();
+        lines.push(format!(
+            "referenced_file source={} path={} exists={}",
+            source,
+            path.display(),
+            exists
+        ));
+        if !exists {
+            failures.push(format!("missing {source}: {}", path.display()));
+        }
+    }
+
+    LaunchPreflight {
+        ok: failures.is_empty(),
+        report: if lines.is_empty() {
+            "no_checks".to_string()
+        } else {
+            lines.join("\n")
+        },
+        error: if failures.is_empty() {
+            None
+        } else {
+            Some(failures.join("; "))
+        },
+    }
+}
+
+fn push_file_check(lines: &mut Vec<String>, failures: &mut Vec<String>, name: &str, path: &Path) {
+    let exists = path.is_file();
+    lines.push(format!("{name}={} exists={exists}", path.display()));
+    if !exists {
+        failures.push(format!("missing {name}: {}", path.display()));
+    }
+}
+
+fn referenced_launch_files(args: &[String]) -> Vec<(String, PathBuf)> {
+    const PREFIXES: &[&str] = &[
+        "--hostlist=",
+        "--hostlist-auto=",
+        "--hostlist-exclude=",
+        "--ipset=",
+        "--ipset-ip=",
+        "--ipset-exclude=",
+        "--dpi-desync-fake-quic=",
+        "--dpi-desync-fake-tls=",
+        "--dpi-desync-fake-http=",
+        "--dpi-desync-fake-discord=",
+        "--dpi-desync-fake-stun=",
+        "--dpi-desync-fake-unknown-udp=",
+        "--dpi-desync-fakedsplit-pattern=",
+        "--dpi-desync-split-seqovl-pattern=",
+    ];
+
+    let mut files = Vec::new();
+    for arg in args {
+        for prefix in PREFIXES {
+            if let Some(value) = arg.strip_prefix(prefix) {
+                let value = value.trim_matches('"');
+                if !looks_like_file_path(value) {
+                    continue;
+                }
+                files.push((
+                    prefix
+                        .trim_end_matches('=')
+                        .trim_start_matches("--")
+                        .to_string(),
+                    PathBuf::from(value),
+                ));
+            }
+        }
+    }
+    files
+}
+
+fn looks_like_file_path(value: &str) -> bool {
+    value.contains('\\') || value.contains('/')
+}
+
+fn format_argv_lines(exe_path: &Path, args: &[String]) -> String {
+    let mut lines = vec![format!("arg[0]={}", exe_path.display())];
+    lines.extend(
+        args.iter()
+            .enumerate()
+            .map(|(index, arg)| format!("arg[{}]={}", index + 1, arg)),
+    );
+    lines.join("\n")
 }
 
 struct ProfileLaunchReport {
@@ -1853,6 +2001,8 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         fs::write(bin.join("winws.exe"), b"stub").expect("winws");
         fs::write(bin.join("WinDivert.dll"), b"stub").expect("dll");
         fs::write(bin.join("WinDivert64.sys"), b"stub").expect("sys");
+        fs::write(bin.join("cygwin1.dll"), b"stub").expect("cygwin");
+        fs::write(lists.join("list-general.txt"), b"example.org").expect("hostlist");
         let bat = root.join("general.bat");
         fs::write(
             &bat,
@@ -1879,6 +2029,52 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         assert!(log.contains("windivert_sys=true"));
         assert!(log.contains("argv=1"));
         assert!(log.contains("command="));
+        assert!(log.contains("preflight_ok=true"));
+        assert!(log.contains("argv_list_begin"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn build_launch_preserves_runtime_paths_with_spaces() {
+        let root = test_runtime_dir("John Smith launch path");
+        let bin = root.join("bin");
+        let lists = root.join("lists");
+        fs::create_dir_all(&bin).expect("bin");
+        fs::create_dir_all(&lists).expect("lists");
+        fs::write(bin.join("winws.exe"), b"stub").expect("winws");
+        fs::write(bin.join("WinDivert.dll"), b"stub").expect("dll");
+        fs::write(bin.join("WinDivert64.sys"), b"stub").expect("sys");
+        fs::write(bin.join("cygwin1.dll"), b"stub").expect("cygwin");
+        fs::write(bin.join("tls_clienthello_www_google_com.bin"), b"stub").expect("tls");
+        fs::write(lists.join("list-general.txt"), b"example.org").expect("hostlist");
+        let bat = root.join("general.bat");
+        fs::write(
+            &bat,
+            r#"start "zapret: %~n0" /min "%BIN%winws.exe" --hostlist="%LISTS%list-general.txt" --dpi-desync-fake-tls="%BIN%tls_clienthello_www_google_com.bin" --filter-tcp=443"#,
+        )
+        .expect("bat");
+
+        let profiles = vec!["discord".to_string()];
+        let launch = build_winws_launch(&bat, &root, "alt", &profiles).expect("launch");
+        let hostlist_arg = format!("--hostlist={}", lists.join("list-general.txt").display());
+        let fake_tls_arg = format!(
+            "--dpi-desync-fake-tls={}",
+            bin.join("tls_clienthello_www_google_com.bin").display()
+        );
+
+        assert_eq!(launch.exe_path, bin.join("winws.exe"));
+        assert!(root.to_string_lossy().contains(' '));
+        assert!(launch.args.iter().all(|arg| !arg.contains('"')));
+        assert!(launch.args.iter().any(|arg| arg == &hostlist_arg));
+        assert!(launch.args.iter().any(|arg| arg == &fake_tls_arg));
+        assert!(launch.args.iter().any(|arg| arg == "--filter-tcp=443"));
+
+        let log = fs::read_to_string(root.join("engine-launch.log")).expect("log");
+        assert!(log.contains("preflight_ok=true"));
+        assert!(log.contains("argv_list_begin"));
+        assert!(log.contains(&format!("arg[0]={}", bin.join("winws.exe").display())));
+        assert!(log.contains(&format!("arg[1]={hostlist_arg}")));
 
         let _ = fs::remove_dir_all(root);
     }

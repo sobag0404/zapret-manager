@@ -46,6 +46,7 @@ Current test installer:
 - Enable now creates snapshot state before launch.
 - Disable/emergency disable/tray Exit attempt cleanup and reset runtime state.
 - `engine-launch.log` includes strategy, admin state, work dir, `winws.exe`, WinDivert file presence, argv count, and command.
+- `engine-launch.log` now includes launch preflight and a structured `argv_list` so paths with spaces and broken file arguments can be diagnosed.
 - Early `winws.exe` exit is handled as failure and does not leave the app marked as running.
 - CI split:
   - Ubuntu checks cross-platform Rust crates and frontend.
@@ -56,6 +57,8 @@ Current test installer:
 ## Current Problems / Blockers
 
 - User clarified after the hotfix discussion: Discord and YouTube are also not confirmed working now. Current blocker is all target services failing or unconfirmed: Discord, YouTube, Telegram, WhatsApp.
+- Latest user error: `winws.exe` starts and exits immediately with exit code `1`; reported launch path includes a user directory with a space, `C:\Users\John Smith\...`.
+- Current focus is root cause of `winws.exe` exit code `1`: `.bat -> argv` parsing, ShellExecute/runas quoting, preflight file validation, and launch logs.
 - Strategy status must be treated as unknown until validated end-to-end with a live `winws.exe` process and fresh `engine-launch.log`.
 - ALT6 is reported broken by the user and must stay hidden/disabled from normal UI/candidates.
 - User reported after `cc1b3ef`: nothing works, including previously working Discord/YouTube. Hotfix disables automatic profile-specific argv injection and returns to the known general strategy launch path.
@@ -117,6 +120,18 @@ Current strategy/live-diagnostics block pending checks:
 - User-facing strategies pruned to a small list; ALT6 hidden as reported broken.
 - All visible strategies are marked `unknown` or `experimental` until manually validated.
 - Diagnostic export is being expanded with engine process alive, pid, uptime, active strategy, selected profiles, launch log path, and endpoint checks.
+
+Launch-preflight checks passed on 2026-06-29:
+
+- Add path-with-spaces regression test for `C:\Users\John Smith\...` style runtime paths.
+- Add launch preflight for `winws.exe`, WinDivert files, `cygwin1.dll`, referenced hostlists/ipsets/fake payload files, and raw quote detection.
+- Add structured `argv_list` to `engine-launch.log` for exit code `1` debugging.
+- `cargo fmt --all --check`
+- `cargo test --workspace`
+- `corepack pnpm test`
+- `corepack pnpm --dir app/frontend build`
+- `cargo tauri build`
+- Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
 
 Strategy/live-diagnostics checks passed on 2026-06-29:
 
