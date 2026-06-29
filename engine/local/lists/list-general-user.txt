@@ -14,7 +14,6 @@ cdn-telegram.com
 telegramdownload.com
 telegra.ph
 comments.app
-contest.com
 whatsapp.com
 www.whatsapp.com
 web.whatsapp.com
@@ -24,7 +23,8 @@ static.whatsapp.net
 mmg.whatsapp.net
 media.whatsapp.net
 wa.me
-whatsapp-plus.info
-whatsappbrand.com
-fbcdn.net
-facebook.net
+g.whatsapp.net
+v.whatsapp.net
+pps.whatsapp.net
+s.whatsapp.net
+chat.cdn.whatsapp.net

@@ -1,9 +1,11 @@
 use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
@@ -182,7 +184,7 @@ impl ServiceClient {
                 return Err(err);
             }
         };
-        let engine_process = match self.start_engine(&runtime_dir) {
+        let engine_process = match self.start_engine(&runtime_dir, &profiles) {
             Ok(engine_process) => engine_process,
             Err(err) => {
                 cleanup_runtime_dir_best_effort(&runtime_dir);
@@ -410,6 +412,35 @@ impl ServiceClient {
             diag("strategy_integrity", "Последняя стратегия не повреждена", DiagnosticStatus::Ok, "Manifest стратегий валиден."),
         ])
     }
+
+    pub fn dns_diagnostics(&self) -> DiagnosticReport {
+        let mut items = Vec::new();
+        for (profile, host) in connectivity_targets() {
+            let result = check_dns(host);
+            items.push(DiagnosticItem {
+                id: format!("dns_{profile}_{host}").replace('.', "_"),
+                title: format!("DNS {profile}: {host}"),
+                status: if result.ok {
+                    DiagnosticStatus::Ok
+                } else {
+                    DiagnosticStatus::Error
+                },
+                problem: result.problem,
+                action: Some(result.action),
+            });
+        }
+        DiagnosticReport::aggregate(items)
+    }
+
+    pub fn connectivity_diagnostics(&self) -> DiagnosticReport {
+        let mut items = Vec::new();
+        items.push(connectivity_item("internet", "one.one.one.one", 443));
+        for (profile, host) in connectivity_targets() {
+            items.push(connectivity_item(profile, host, 443));
+        }
+        DiagnosticReport::aggregate(items)
+    }
+
     pub fn read_user_logs(&self) -> Result<String> {
         let path = self.data_root.join("logs").join("user.log");
         if !path.exists() {
@@ -613,19 +644,21 @@ impl ServiceClient {
         Ok(target)
     }
 
-    fn start_engine(&self, runtime_dir: &Path) -> Result<EngineProcess> {
+    fn start_engine(&self, runtime_dir: &Path, profiles: &[String]) -> Result<EngineProcess> {
         let strategy = normalized_engine_strategy(&self.settings.engine_strategy);
         let bat = runtime_dir.join(strategy_bat_file(&strategy));
-        let launch = build_winws_launch(&bat, runtime_dir)?;
+        let launch = build_winws_launch(&bat, runtime_dir, &strategy, profiles)?;
         self.log_debug(
             "info",
             "engine_start_winws_direct",
             &format!(
-                "stage=start_engine, bat={}, strategy={}, exe={}, args={}, log={}",
+                "stage=start_engine, bat={}, strategy={}, profiles={}, exe={}, args={}, hostlists={}, log={}",
                 bat.display(),
                 strategy,
+                profiles.join(","),
                 launch.exe_path.display(),
                 launch.args.len(),
+                launch.hostlists.join(","),
                 launch.log_path.display()
             ),
         )?;
@@ -733,9 +766,15 @@ struct WinwsLaunch {
     work_dir: PathBuf,
     args: Vec<String>,
     log_path: PathBuf,
+    hostlists: Vec<String>,
 }
 
-fn build_winws_launch(bat: &Path, work_dir: &Path) -> Result<WinwsLaunch> {
+fn build_winws_launch(
+    bat: &Path,
+    work_dir: &Path,
+    strategy: &str,
+    selected_profiles: &[String],
+) -> Result<WinwsLaunch> {
     let log = work_dir.join("engine-launch.log");
     let strategy_source =
         fs::read_to_string(bat).map_err(|source| zapret_manager_core::io_error(bat, source))?;
@@ -766,12 +805,19 @@ fn build_winws_launch(bat: &Path, work_dir: &Path) -> Result<WinwsLaunch> {
             exe_path.display()
         )));
     }
+    let hostlists = collect_hostlists(&parts);
+    let profile_report = profile_launch_report(selected_profiles, strategy, &hostlists);
 
     let log_text = format!(
-        "Starting winws directly\nstrategy={}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
+        "Starting winws directly\nstrategy={}\nnormalized_strategy={}\nselected_profiles={}\nprofile_strategy_candidates={}\nprofile_hostlist_coverage={}\nused_hostlists={}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
         bat.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("strategy"),
+        strategy,
+        normalized_profiles(selected_profiles).join(","),
+        profile_report.strategy_candidates,
+        profile_report.hostlist_coverage,
+        hostlists.join(","),
         is_elevated(),
         bin_dir.display(),
         exe_path.display(),
@@ -788,7 +834,133 @@ fn build_winws_launch(bat: &Path, work_dir: &Path) -> Result<WinwsLaunch> {
         work_dir: bin_dir,
         args: parts,
         log_path: log,
+        hostlists,
     })
+}
+
+struct ProfileLaunchReport {
+    strategy_candidates: String,
+    hostlist_coverage: String,
+}
+
+fn profile_launch_report(
+    selected_profiles: &[String],
+    current_strategy: &str,
+    hostlists: &[String],
+) -> ProfileLaunchReport {
+    let profiles = normalized_profiles(selected_profiles);
+    let strategy_candidates = profiles
+        .iter()
+        .map(|profile| {
+            format!(
+                "{profile}={}",
+                profile_strategy_candidates(profile, current_strategy).join("|")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    let lower_hostlists = hostlists
+        .iter()
+        .map(|hostlist| hostlist.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let hostlist_coverage = profiles
+        .iter()
+        .filter(|profile| matches!(profile.as_str(), "telegram" | "whatsapp"))
+        .map(|profile| {
+            let domains = profile_domains(profile);
+            let covered_by_general_user = lower_hostlists
+                .iter()
+                .any(|hostlist| hostlist.ends_with("list-general-user.txt"));
+            format!(
+                "{profile}: domains={}, covered_by_list_general_user={covered_by_general_user}",
+                domains.join("|")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    ProfileLaunchReport {
+        strategy_candidates,
+        hostlist_coverage: if hostlist_coverage.is_empty() {
+            "not_applicable".to_string()
+        } else {
+            hostlist_coverage
+        },
+    }
+}
+
+fn normalized_profiles(selected_profiles: &[String]) -> Vec<String> {
+    let mut profiles = selected_profiles
+        .iter()
+        .map(|profile| profile.trim().to_ascii_lowercase())
+        .filter(|profile| !profile.is_empty())
+        .collect::<Vec<_>>();
+    if profiles.iter().any(|profile| profile == "common") {
+        profiles = vec![
+            "discord".to_string(),
+            "youtube".to_string(),
+            "telegram".to_string(),
+            "whatsapp".to_string(),
+            "common".to_string(),
+        ];
+    }
+    profiles.sort_by_key(|profile| profile_order(profile));
+    profiles.dedup();
+    profiles
+}
+
+fn profile_strategy_candidates(profile: &str, current_strategy: &str) -> Vec<String> {
+    let mut candidates = match profile {
+        "telegram" | "whatsapp" => vec!["alt", "alt3", "simple_fake", "alt5", "fake_tls_auto"],
+        "discord" | "youtube" => vec!["alt", "alt3", "simple_fake"],
+        "common" => vec!["alt", "alt3", "simple_fake", "alt5"],
+        _ => vec!["general", "alt"],
+    }
+    .into_iter()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+    let current = normalized_engine_strategy(current_strategy);
+    if !candidates.iter().any(|candidate| candidate == &current) {
+        candidates.insert(0, current);
+    }
+    candidates
+}
+
+fn profile_domains(profile: &str) -> &'static [&'static str] {
+    match profile {
+        "telegram" => &[
+            "web.telegram.org",
+            "t.me",
+            "telegram.org",
+            "api.telegram.org",
+            "desktop.telegram.org",
+            "updates.tdesktop.com",
+        ],
+        "whatsapp" => &[
+            "web.whatsapp.com",
+            "www.whatsapp.com",
+            "whatsapp.com",
+            "whatsapp.net",
+            "g.whatsapp.net",
+            "v.whatsapp.net",
+        ],
+        "discord" => &["discord.com", "discordapp.com"],
+        "youtube" => &["youtube.com", "googlevideo.com"],
+        _ => &["example.com"],
+    }
+}
+
+fn collect_hostlists(args: &[String]) -> Vec<String> {
+    let mut hostlists = args
+        .iter()
+        .filter_map(|arg| {
+            arg.strip_prefix("--hostlist=")
+                .or_else(|| arg.strip_prefix("--hostlist-auto="))
+                .map(|value| value.trim_matches('"').to_string())
+        })
+        .collect::<Vec<_>>();
+    hostlists.sort();
+    hostlists.dedup();
+    hostlists
 }
 
 fn extract_winws_command(source: &str) -> Option<String> {
@@ -1081,6 +1253,100 @@ fn append_launch_log(path: &Path, message: &str) {
     }
 }
 
+struct NetworkCheck {
+    ok: bool,
+    problem: Option<String>,
+    action: String,
+}
+
+fn connectivity_targets() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("discord", "discord.com"),
+        ("youtube", "youtube.com"),
+        ("telegram", "web.telegram.org"),
+        ("telegram", "t.me"),
+        ("telegram", "api.telegram.org"),
+        ("whatsapp", "web.whatsapp.com"),
+        ("whatsapp", "www.whatsapp.com"),
+        ("whatsapp", "g.whatsapp.net"),
+    ]
+}
+
+fn connectivity_item(profile: &str, host: &str, port: u16) -> DiagnosticItem {
+    let result = check_tcp(host, port);
+    DiagnosticItem {
+        id: format!("connectivity_{profile}_{host}").replace('.', "_"),
+        title: format!("{profile}: {host}"),
+        status: if result.ok {
+            DiagnosticStatus::Ok
+        } else {
+            DiagnosticStatus::Warning
+        },
+        problem: result.problem,
+        action: Some(result.action),
+    }
+}
+
+fn check_dns(host: &str) -> NetworkCheck {
+    match (host, 443).to_socket_addrs() {
+        Ok(addrs) => {
+            if addrs.count() > 0 {
+                NetworkCheck {
+                    ok: true,
+                    problem: None,
+                    action: "DNS отвечает.".to_string(),
+                }
+            } else {
+                NetworkCheck {
+                    ok: false,
+                    problem: Some(format!("DNS не вернул адрес для {host}.")),
+                    action: "Проверьте DNS или включите Secure DNS в браузере.".to_string(),
+                }
+            }
+        }
+        Err(err) => NetworkCheck {
+            ok: false,
+            problem: Some(format!("DNS ошибка для {host}: {err}.")),
+            action: "Проверьте интернет, DNS и активный VPN/proxy.".to_string(),
+        },
+    }
+}
+
+fn check_tcp(host: &str, port: u16) -> NetworkCheck {
+    let addrs = match (host, port).to_socket_addrs() {
+        Ok(addrs) => addrs.collect::<Vec<_>>(),
+        Err(err) => {
+            return NetworkCheck {
+                ok: false,
+                problem: Some(format!("DNS ошибка для {host}: {err}.")),
+                action: "Сначала исправьте DNS, затем повторите проверку доступности.".to_string(),
+            };
+        }
+    };
+    if addrs.is_empty() {
+        return NetworkCheck {
+            ok: false,
+            problem: Some(format!("DNS не вернул адрес для {host}.")),
+            action: "Проверьте DNS или включите Secure DNS в браузере.".to_string(),
+        };
+    }
+    let timeout = Duration::from_millis(1200);
+    for addr in addrs {
+        if TcpStream::connect_timeout(&addr, timeout).is_ok() {
+            return NetworkCheck {
+                ok: true,
+                problem: None,
+                action: format!("DNS и TCP {port} отвечают."),
+            };
+        }
+    }
+    NetworkCheck {
+        ok: false,
+        problem: Some(format!("TCP {port} для {host} не отвечает.")),
+        action: "Выключите режим, выберите другую стратегию на главной странице и включите снова. Для Telegram/WhatsApp начните с ALT, ALT3, Simple Fake или ALT5.".to_string(),
+    }
+}
+
 #[cfg(windows)]
 fn terminate_pid(pid: u32, _context: &Path) -> Result<()> {
     let handle = unsafe {
@@ -1140,7 +1406,7 @@ fn cleanup_old_runtime_dirs(runtime_root: &Path, keep: &Path) {
 mod tests {
     use super::{
         build_winws_launch, expand_strategy_vars, extract_winws_command, powershell_single_quote,
-        split_windows_args,
+        profile_launch_report, split_windows_args,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -1186,11 +1452,19 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         )
         .expect("bat");
 
-        let launch = build_winws_launch(&bat, &root).expect("launch");
+        let profiles = vec!["telegram".to_string(), "whatsapp".to_string()];
+        let launch = build_winws_launch(&bat, &root, "alt", &profiles).expect("launch");
         let log = fs::read_to_string(root.join("engine-launch.log")).expect("log");
 
         assert_eq!(launch.exe_path, bin.join("winws.exe"));
+        assert!(launch
+            .hostlists
+            .iter()
+            .any(|hostlist| hostlist.ends_with("list-general.txt")));
         assert!(log.contains("work_dir="));
+        assert!(log.contains("selected_profiles=telegram,whatsapp"));
+        assert!(log.contains("profile_strategy_candidates=telegram="));
+        assert!(log.contains("used_hostlists="));
         assert!(log.contains("windivert_dll=true"));
         assert!(log.contains("windivert_sys=true"));
         assert!(log.contains("argv=1"));
@@ -1202,6 +1476,21 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
     #[test]
     fn powershell_quote_escapes_single_quotes() {
         assert_eq!(powershell_single_quote("C:\\A'B"), "C:\\A''B");
+    }
+
+    #[test]
+    fn profile_report_tracks_telegram_whatsapp_coverage() {
+        let profiles = vec!["common".to_string()];
+        let hostlists = vec!["C:\\Runtime\\lists\\list-general-user.txt".to_string()];
+        let report = profile_launch_report(&profiles, "alt5", &hostlists);
+
+        assert!(report.strategy_candidates.contains("telegram="));
+        assert!(report.strategy_candidates.contains("whatsapp="));
+        assert!(report.hostlist_coverage.contains("telegram:"));
+        assert!(report.hostlist_coverage.contains("whatsapp:"));
+        assert!(report
+            .hostlist_coverage
+            .contains("covered_by_list_general_user=true"));
     }
 
     fn test_runtime_dir(name: &str) -> PathBuf {

@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-06-26
+Last updated: 2026-06-29
 
 ## Current Goal
 
@@ -36,6 +36,9 @@ Current test installer:
 - Tauri/React UI with profiles for Discord, YouTube, Telegram, WhatsApp, and Common.
 - Real Flowseal-style engine bundle is launched through a checked runtime copy, not directly from GUI resources.
 - Direct `winws.exe` launch path is implemented from selected strategy `.bat`.
+- Telegram/WhatsApp investigation is in progress: launch logs now include selected profiles, profile strategy candidates, used hostlists, and Telegram/WhatsApp hostlist coverage.
+- Telegram/WhatsApp hostlist was cleaned up and extended with focused app/web endpoints; Telegram ipset was aligned with current official Telegram ranges and the bogus documentation IP was removed.
+- DNS/TCP connectivity checks now report concrete Telegram/WhatsApp endpoints instead of a single mock profile status.
 - Enable now creates snapshot state before launch.
 - Disable/emergency disable/tray Exit attempt cleanup and reset runtime state.
 - `engine-launch.log` includes strategy, admin state, work dir, `winws.exe`, WinDivert file presence, argv count, and command.
@@ -48,9 +51,9 @@ Current test installer:
 
 ## Current Problems / Blockers
 
-- User still needs to test the latest `ZapretManager v1.2-test.exe` after runtime cleanup changes.
+- User still needs to test the latest `ZapretManager v1.2-test.exe` after Telegram/WhatsApp hostlist and diagnostics changes.
 - If enable fails again, the next required input is the new `engine-launch.log` path shown by the app.
-- Telegram/WhatsApp strategy effectiveness is not confirmed stable yet.
+- Telegram/WhatsApp strategy effectiveness is not confirmed stable yet. Current fix improves domain/ip coverage and diagnostics without changing working Discord/YouTube strategy behavior.
 - Snapshot/revert is still mostly architectural/mock for system DNS/proxy/firewall state.
 
 ## Verified
@@ -64,10 +67,20 @@ Local checks passed on 2026-06-26:
 - Tauri installer build from `app/tauri`
 - Test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
 
+Local checks passed on 2026-06-29 for Telegram/WhatsApp diagnostics changes:
+
+- `cargo fmt --all --check`
+- `cargo test --workspace`
+- `corepack pnpm test`
+- `corepack pnpm --dir app/frontend build`
+- `cargo tauri build`
+- Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
+
 GitHub Actions:
 
 - Docs/context commit `c93d194`: CI success.
 - Latest code/build commit `62c15aa`: CI success and Build Windows success.
+- Current Telegram/WhatsApp changes passed local checks and installer rebuild; commit, push, and Actions are pending.
 
 ## Remaining Before Stable v1.2
 
@@ -75,7 +88,8 @@ GitHub Actions:
 - Confirm Disable, Emergency Disable, tray Exit, and app shutdown leave no `winws.exe` process.
 - Confirm VPN does not complain after full tray Exit.
 - Confirm `engine-launch.log` gives actionable detail if `winws.exe` exits immediately.
-- Decide whether Telegram/WhatsApp need profile-specific strategy changes.
+- Test Telegram only, WhatsApp only, then both together with Discord/YouTube.
+- Decide whether Telegram/WhatsApp need profile-specific automatic strategy switching after manual strategy tests.
 - Create signed release only after user confirms the test build works.
 
 ## Security Rules

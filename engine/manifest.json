@@ -1,202 +1,202 @@
 {
-    "schema_version":  "1",
-    "engine_version":  "flowseal-1.9.9c",
-    "source_url":  "https://github.com/Flowseal/zapret-discord-youtube/releases/tag/1.9.9c",
-    "files":  [
-                  {
-                      "relative_path":  "bin/cygwin1.dll",
-                      "sha256":  "103104a52e5293ce418944725df19e2bf81ad9269b9a120d71d39028e821499b",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "bin/quic_initial_dbankcloud_ru.bin",
-                      "sha256":  "f7a1c1cffc8f65bd47412b7ca5588653d21eec916bb79203c9914890a62874df",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "bin/quic_initial_www_google_com.bin",
-                      "sha256":  "f4589c57749f956bb30538197a521d7005f8b0a8723b4707e72405e51ddac50a",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "bin/stun.bin",
-                      "sha256":  "9cd5469309780ca56c0bd97266524a48c7ee529d02c3179cfecb20b260a59641",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "bin/tls_clienthello_4pda_to.bin",
-                      "sha256":  "eefeaf09dde8d69b1f176212541f63c68b314a33a335eced99a8a29f17254da8",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "bin/tls_clienthello_max_ru.bin",
-                      "sha256":  "4ee0870abe0a0128600b0095189987ba1d210dae8bf963bc725aff49cf922624",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "bin/tls_clienthello_www_google_com.bin",
-                      "sha256":  "936c2bee4cfb80aa3c426b2dcbcc834b3fbcd1adb17172959dc569c73a14275c",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "bin/WinDivert.dll",
-                      "sha256":  "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "bin/WinDivert64.sys",
-                      "sha256":  "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "bin/winws.exe",
-                      "sha256":  "affb4f69d2ea302a7abccd5325d81826e140ddae014f1e070bc4a6c0dd555188",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (ALT).bat",
-                      "sha256":  "c6dff44ea3c7159788077e31a8e35929eab1c0270fb86f5490d44b1fd049a6fc",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (ALT10).bat",
-                      "sha256":  "7a8b4d861c4448ee3fb4aef61d79bcdbfc3ea0ab043145f643539fbd177c8864",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (ALT11).bat",
-                      "sha256":  "8df459fc47b6becbfd4cc54263ab99ee275a62c8a8097fb4abea236e29e7cc85",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (ALT12).bat",
-                      "sha256":  "3f28b3788373c4963ba7b4e38112ae965fef2c99a812f023e9d2c736e99cb9c7",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (ALT2).bat",
-                      "sha256":  "94a8ef4dc67c5e04100c404604883cee6a7d8ad5d324395ecd71dc8ccb805d80",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (ALT3).bat",
-                      "sha256":  "99c06ea66bdade72d43febbf4e5bd6208351ebd471fa99a39a92253e21526c05",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (ALT4).bat",
-                      "sha256":  "feee3e7ecdbf3a5a46109b6018144954d793143ad4c889f3273f8ec1e8ac067d",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (ALT5).bat",
-                      "sha256":  "3e0a7026cccc02e6ca968dcd3efe4db94181cea190cecf4ac3e7e60d39d4dbb1",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (ALT6).bat",
-                      "sha256":  "8ef1e5f6ae38a7a288ba1516293eda9183d7f265210897399f911d8a1e7e62fe",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (ALT7).bat",
-                      "sha256":  "26b4dd29e5020066660230cf5ea61693dd85b69d15fc11ac967f3adf54fb352f",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (ALT8).bat",
-                      "sha256":  "8612e0b0d5eb757448c4d2ef255abc00ff30f2b7e9087e0c936f7ba479af07e5",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (ALT9).bat",
-                      "sha256":  "4b8f50bd2b5cd71c0a883461d4a526a2cd9494a87847907807d06c233166c2c9",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (FAKE TLS AUTO ALT).bat",
-                      "sha256":  "0a3744d9a42dd439b3576fa1d031d3d2ef6f93564bdb575a6afb0c8a3a056ac2",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (FAKE TLS AUTO ALT2).bat",
-                      "sha256":  "1e9a3d1fe257f10c9355dbef5a45cca9765b57e2ce1f549225c68c86ff1c8d8b",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (FAKE TLS AUTO ALT3).bat",
-                      "sha256":  "7679e6f52ce95ed5c554de668286a40f2ac9b845cc69a3619a313f10e43cef46",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (FAKE TLS AUTO).bat",
-                      "sha256":  "fa227e6c9527b093d8099018b059c798f89e2984140fd903613e598a71b76276",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (SIMPLE FAKE ALT).bat",
-                      "sha256":  "b9f847180ef1da5908870221acf03a469fc0dca87dadf7404350893d24ca02f2",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (SIMPLE FAKE ALT2).bat",
-                      "sha256":  "7ad976ec3968a3dce1e0b54b81e77ec1f925a78eb31930deeaa8359b23201f1a",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general (SIMPLE FAKE).bat",
-                      "sha256":  "3d8bfbf6758e41c12d3e4975c451e20a92a0cf3a429e3c283d686b92172b2732",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "general.bat",
-                      "sha256":  "c4f7f5708de5323b55ea85e2ef140c43426352875593eae1c0b94bfc769a4477",
-                      "executable":  true
-                  },
-                  {
-                      "relative_path":  "lists/ipset-all.txt",
-                      "sha256":  "f237ce13aabf89deeccde6db5a598cfe280dfdad87d0e9534c27ee9c014d5a86",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "lists/ipset-exclude.txt",
-                      "sha256":  "96c03954012765ce4ab03b9c30f29ab1ca1b698c6752224d03828e6d182eb0fc",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "lists/ipset-exclude-user.txt",
-                      "sha256":  "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "lists/list-exclude.txt",
-                      "sha256":  "fee10780709c1956046e2f300af46cb9814c23a14001dee85fe5149e1f286f5f",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "lists/list-exclude-user.txt",
-                      "sha256":  "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "lists/list-general.txt",
-                      "sha256":  "fa32857695c52544c082df680807564d24c360be6eb7553f8d5fac6591312f6c",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "lists/list-general-user.txt",
-                      "sha256":  "3f3b212f2fdba961bd09d476c4b0ea6a24230e647ee11c352a8a1fc251695357",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "lists/list-google.txt",
-                      "sha256":  "1e59f9d487f7bce12091c838151713d0a8d31c3aae20afefebb38206f2cd8232",
-                      "executable":  false
-                  },
-                  {
-                      "relative_path":  "service.bat",
-                      "sha256":  "d976e8e559a9a300a95198885d3e77d6375e8ebe76709a74c590e995a55737a2",
-                      "executable":  true
-                  }
-              ]
+  "schema_version": "1",
+  "engine_version": "flowseal-1.9.9c",
+  "source_url": "https://github.com/Flowseal/zapret-discord-youtube/releases/tag/1.9.9c",
+  "files": [
+    {
+      "relative_path": "bin/cygwin1.dll",
+      "sha256": "103104a52e5293ce418944725df19e2bf81ad9269b9a120d71d39028e821499b",
+      "executable": true
+    },
+    {
+      "relative_path": "bin/quic_initial_dbankcloud_ru.bin",
+      "sha256": "f7a1c1cffc8f65bd47412b7ca5588653d21eec916bb79203c9914890a62874df",
+      "executable": false
+    },
+    {
+      "relative_path": "bin/quic_initial_www_google_com.bin",
+      "sha256": "f4589c57749f956bb30538197a521d7005f8b0a8723b4707e72405e51ddac50a",
+      "executable": false
+    },
+    {
+      "relative_path": "bin/stun.bin",
+      "sha256": "9cd5469309780ca56c0bd97266524a48c7ee529d02c3179cfecb20b260a59641",
+      "executable": false
+    },
+    {
+      "relative_path": "bin/tls_clienthello_4pda_to.bin",
+      "sha256": "eefeaf09dde8d69b1f176212541f63c68b314a33a335eced99a8a29f17254da8",
+      "executable": false
+    },
+    {
+      "relative_path": "bin/tls_clienthello_max_ru.bin",
+      "sha256": "4ee0870abe0a0128600b0095189987ba1d210dae8bf963bc725aff49cf922624",
+      "executable": false
+    },
+    {
+      "relative_path": "bin/tls_clienthello_www_google_com.bin",
+      "sha256": "936c2bee4cfb80aa3c426b2dcbcc834b3fbcd1adb17172959dc569c73a14275c",
+      "executable": false
+    },
+    {
+      "relative_path": "bin/WinDivert.dll",
+      "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2",
+      "executable": true
+    },
+    {
+      "relative_path": "bin/WinDivert64.sys",
+      "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2",
+      "executable": true
+    },
+    {
+      "relative_path": "bin/winws.exe",
+      "sha256": "affb4f69d2ea302a7abccd5325d81826e140ddae014f1e070bc4a6c0dd555188",
+      "executable": true
+    },
+    {
+      "relative_path": "general (ALT).bat",
+      "sha256": "c6dff44ea3c7159788077e31a8e35929eab1c0270fb86f5490d44b1fd049a6fc",
+      "executable": true
+    },
+    {
+      "relative_path": "general (ALT10).bat",
+      "sha256": "7a8b4d861c4448ee3fb4aef61d79bcdbfc3ea0ab043145f643539fbd177c8864",
+      "executable": true
+    },
+    {
+      "relative_path": "general (ALT11).bat",
+      "sha256": "8df459fc47b6becbfd4cc54263ab99ee275a62c8a8097fb4abea236e29e7cc85",
+      "executable": true
+    },
+    {
+      "relative_path": "general (ALT12).bat",
+      "sha256": "3f28b3788373c4963ba7b4e38112ae965fef2c99a812f023e9d2c736e99cb9c7",
+      "executable": true
+    },
+    {
+      "relative_path": "general (ALT2).bat",
+      "sha256": "94a8ef4dc67c5e04100c404604883cee6a7d8ad5d324395ecd71dc8ccb805d80",
+      "executable": true
+    },
+    {
+      "relative_path": "general (ALT3).bat",
+      "sha256": "99c06ea66bdade72d43febbf4e5bd6208351ebd471fa99a39a92253e21526c05",
+      "executable": true
+    },
+    {
+      "relative_path": "general (ALT4).bat",
+      "sha256": "feee3e7ecdbf3a5a46109b6018144954d793143ad4c889f3273f8ec1e8ac067d",
+      "executable": true
+    },
+    {
+      "relative_path": "general (ALT5).bat",
+      "sha256": "3e0a7026cccc02e6ca968dcd3efe4db94181cea190cecf4ac3e7e60d39d4dbb1",
+      "executable": true
+    },
+    {
+      "relative_path": "general (ALT6).bat",
+      "sha256": "8ef1e5f6ae38a7a288ba1516293eda9183d7f265210897399f911d8a1e7e62fe",
+      "executable": true
+    },
+    {
+      "relative_path": "general (ALT7).bat",
+      "sha256": "26b4dd29e5020066660230cf5ea61693dd85b69d15fc11ac967f3adf54fb352f",
+      "executable": true
+    },
+    {
+      "relative_path": "general (ALT8).bat",
+      "sha256": "8612e0b0d5eb757448c4d2ef255abc00ff30f2b7e9087e0c936f7ba479af07e5",
+      "executable": true
+    },
+    {
+      "relative_path": "general (ALT9).bat",
+      "sha256": "4b8f50bd2b5cd71c0a883461d4a526a2cd9494a87847907807d06c233166c2c9",
+      "executable": true
+    },
+    {
+      "relative_path": "general (FAKE TLS AUTO ALT).bat",
+      "sha256": "0a3744d9a42dd439b3576fa1d031d3d2ef6f93564bdb575a6afb0c8a3a056ac2",
+      "executable": true
+    },
+    {
+      "relative_path": "general (FAKE TLS AUTO ALT2).bat",
+      "sha256": "1e9a3d1fe257f10c9355dbef5a45cca9765b57e2ce1f549225c68c86ff1c8d8b",
+      "executable": true
+    },
+    {
+      "relative_path": "general (FAKE TLS AUTO ALT3).bat",
+      "sha256": "7679e6f52ce95ed5c554de668286a40f2ac9b845cc69a3619a313f10e43cef46",
+      "executable": true
+    },
+    {
+      "relative_path": "general (FAKE TLS AUTO).bat",
+      "sha256": "fa227e6c9527b093d8099018b059c798f89e2984140fd903613e598a71b76276",
+      "executable": true
+    },
+    {
+      "relative_path": "general (SIMPLE FAKE ALT).bat",
+      "sha256": "b9f847180ef1da5908870221acf03a469fc0dca87dadf7404350893d24ca02f2",
+      "executable": true
+    },
+    {
+      "relative_path": "general (SIMPLE FAKE ALT2).bat",
+      "sha256": "7ad976ec3968a3dce1e0b54b81e77ec1f925a78eb31930deeaa8359b23201f1a",
+      "executable": true
+    },
+    {
+      "relative_path": "general (SIMPLE FAKE).bat",
+      "sha256": "3d8bfbf6758e41c12d3e4975c451e20a92a0cf3a429e3c283d686b92172b2732",
+      "executable": true
+    },
+    {
+      "relative_path": "general.bat",
+      "sha256": "c4f7f5708de5323b55ea85e2ef140c43426352875593eae1c0b94bfc769a4477",
+      "executable": true
+    },
+    {
+      "relative_path": "lists/ipset-all.txt",
+      "sha256": "63d921b1ef3a4da9b906abba741090fea951961a7455a7efd40cd81a8ce78f2d",
+      "executable": false
+    },
+    {
+      "relative_path": "lists/ipset-exclude.txt",
+      "sha256": "96c03954012765ce4ab03b9c30f29ab1ca1b698c6752224d03828e6d182eb0fc",
+      "executable": false
+    },
+    {
+      "relative_path": "lists/ipset-exclude-user.txt",
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+      "executable": false
+    },
+    {
+      "relative_path": "lists/list-exclude.txt",
+      "sha256": "fee10780709c1956046e2f300af46cb9814c23a14001dee85fe5149e1f286f5f",
+      "executable": false
+    },
+    {
+      "relative_path": "lists/list-exclude-user.txt",
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+      "executable": false
+    },
+    {
+      "relative_path": "lists/list-general.txt",
+      "sha256": "fa32857695c52544c082df680807564d24c360be6eb7553f8d5fac6591312f6c",
+      "executable": false
+    },
+    {
+      "relative_path": "lists/list-general-user.txt",
+      "sha256": "2640951657949f1b3648c8908fc2441085d904c73b521de79071525006f27f1e",
+      "executable": false
+    },
+    {
+      "relative_path": "lists/list-google.txt",
+      "sha256": "1e59f9d487f7bce12091c838151713d0a8d31c3aae20afefebb38206f2cd8232",
+      "executable": false
+    },
+    {
+      "relative_path": "service.bat",
+      "sha256": "d976e8e559a9a300a95198885d3e77d6375e8ebe76709a74c590e995a55737a2",
+      "executable": true
+    }
+  ]
 }
