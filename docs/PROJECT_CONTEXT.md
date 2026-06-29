@@ -21,6 +21,7 @@ Current test installer:
 
 ## Recent Important Commits
 
+- `916ff52 engine: log launch argv preflight`
 - `e03322b diagnostics: prune strategies and add live status`
 - `7820515 engine: disable messaging argv injection`
 - `cc1b3ef engine: add messaging profile diagnostics`
@@ -87,6 +88,7 @@ Local checks passed on 2026-06-29 for Telegram/WhatsApp diagnostics changes:
 - `corepack pnpm --dir app/frontend build`
 - `cargo tauri build`
 - Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
+- Code commit `916ff52` pushed to `main`; CI #35 and Build Windows #28 completed successfully.
 
 Current block pending checks:
 
@@ -146,6 +148,7 @@ Strategy/live-diagnostics checks passed on 2026-06-29:
 GitHub Actions:
 
 - Docs/context commit `c93d194`: CI success.
+- Launch preflight commit `916ff52`: CI success and Build Windows success.
 - Latest code/build commit `62c15aa`: CI success and Build Windows success.
 - Telegram/WhatsApp code commit `bc0f094` was pushed to `main`.
 - Actions status for `bc0f094` is not confirmed from this environment: `gh` is not authenticated and the public GitHub API was unreachable from the local sandbox. Re-check Actions from GitHub UI or an authenticated coordinator thread.
