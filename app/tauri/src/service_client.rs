@@ -5,7 +5,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
@@ -54,11 +54,15 @@ struct EngineProcess {
     process_handle: Option<isize>,
     pid: u32,
     runtime_dir: PathBuf,
+    started_at: SystemTime,
 }
 
 impl ServiceClient {
     pub fn new(content_root: PathBuf, data_root: PathBuf) -> Self {
-        let settings = load_settings(&data_root).unwrap_or_default();
+        let mut settings = load_settings(&data_root).unwrap_or_default();
+        if is_deprecated_strategy(&settings.engine_strategy) {
+            settings.engine_strategy = "alt".to_string();
+        }
         Self {
             content_root,
             data_root,
@@ -473,6 +477,7 @@ impl ServiceClient {
             self.enabled_profiles.join(", ")
         };
         let latest_log = latest_launch_log(&self.data_root);
+        let (engine_status, engine_summary) = self.engine_process_summary();
         let winws_report = runtime_winws_report(&self.data_root.join("engine-runtime"))
             .unwrap_or_else(|err| format!("process_check_error={err}"));
         vec![
@@ -526,6 +531,12 @@ impl ServiceClient {
                 },
             ),
             diag(
+                "engine_process_state",
+                "Engine process alive",
+                engine_status,
+                &engine_summary,
+            ),
+            diag(
                 "winws_runtime_process",
                 "Активный winws.exe",
                 if winws_report.contains("pid=") {
@@ -536,6 +547,40 @@ impl ServiceClient {
                 &winws_report,
             ),
         ]
+    }
+
+    fn engine_process_summary(&self) -> (DiagnosticStatus, String) {
+        let Some(engine) = &self.engine else {
+            return (
+                DiagnosticStatus::Warning,
+                "Engine process is not tracked in current app session.".to_string(),
+            );
+        };
+        let alive = pid_is_running(engine.pid);
+        let uptime = engine
+            .started_at
+            .elapsed()
+            .map(|duration| format!("{}s", duration.as_secs()))
+            .unwrap_or_else(|_| "unknown".to_string());
+        let status = if alive {
+            DiagnosticStatus::Ok
+        } else {
+            DiagnosticStatus::Error
+        };
+        (
+            status,
+            format!(
+                "pid={}, alive={}, uptime={}, runtime_dir={}",
+                engine.pid,
+                alive,
+                uptime,
+                sanitize_text(
+                    &self.data_root,
+                    &self.content_root,
+                    &engine.runtime_dir.display().to_string()
+                )
+            ),
+        )
     }
 
     pub fn read_user_logs(&self) -> Result<String> {
@@ -560,6 +605,9 @@ impl ServiceClient {
             .unwrap_or_else(|| "engine-launch.log not found".to_string());
         let runtime_report = runtime_winws_report(&self.data_root.join("engine-runtime"))
             .unwrap_or_else(|err| format!("process_check_error={err}"));
+        let (_, engine_summary) = self.engine_process_summary();
+        let endpoint_checks = diagnostic_report_text(self.connectivity_diagnostics());
+        let messaging_checks = diagnostic_report_text(self.messaging_diagnostics());
         let diagnostic_text = format!(
             "Zapret Manager diagnostic export\n\
              version=1.2.0\n\
@@ -567,8 +615,11 @@ impl ServiceClient {
              selected_profiles={}\n\
              active_strategy={}\n\
              admin={}\n\
+             engine_process_state={}\n\
              winws_runtime_process={}\n\
              latest_launch_log={}\n\n\
+             [endpoint checks]\n{}\n\n\
+             [telegram whatsapp checks]\n{}\n\n\
              [user.log tail]\n{}\n\n\
              [debug.jsonl tail]\n{}\n\n\
              [engine-launch.log tail]\n{}\n",
@@ -580,6 +631,7 @@ impl ServiceClient {
             },
             self.settings.engine_strategy,
             is_elevated(),
+            engine_summary,
             runtime_report,
             launch_log_path
                 .as_ref()
@@ -589,6 +641,8 @@ impl ServiceClient {
                     &path.display().to_string()
                 ))
                 .unwrap_or_else(|| "not_found".to_string()),
+            endpoint_checks,
+            messaging_checks,
             user_log,
             debug_log,
             launch_log
@@ -844,6 +898,7 @@ impl ServiceClient {
             process_handle,
             pid,
             runtime_dir: runtime_dir.to_path_buf(),
+            started_at: SystemTime::now(),
         })
     }
 
@@ -1269,6 +1324,10 @@ fn normalized_engine_strategy(strategy: &str) -> String {
     }
 }
 
+fn is_deprecated_strategy(strategy: &str) -> bool {
+    matches!(strategy, "alt6")
+}
+
 #[cfg(windows)]
 fn pid_is_running(pid: u32) -> bool {
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
@@ -1464,6 +1523,23 @@ fn sanitize_text(data_root: &Path, content_root: &Path, text: &str) -> String {
         "%LOCALAPPDATA%\\ZapretManager",
     )
     .replace(&content_root.to_string_lossy().to_string(), "%APPDIR%")
+}
+
+fn diagnostic_report_text(report: DiagnosticReport) -> String {
+    report
+        .items
+        .into_iter()
+        .map(|item| {
+            format!(
+                "{} [{}] problem={} action={}",
+                item.title,
+                format!("{:?}", item.status).to_ascii_lowercase(),
+                item.problem.unwrap_or_else(|| "none".to_string()),
+                item.action.unwrap_or_else(|| "none".to_string())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(windows)]

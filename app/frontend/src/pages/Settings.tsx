@@ -3,6 +3,15 @@ import { FormEvent, useEffect, useState } from "react";
 import { AppSettings } from "../api/tauriCommands";
 import { appActions, useAppStore } from "../store/appStore";
 
+const visibleEngineStrategies = [
+  ["alt", "2 ALT · unknown"],
+  ["alt3", "4 ALT3 · unknown"],
+  ["simple_fake", "5 Simple Fake · unknown"],
+  ["general", "1 General · experimental"],
+  ["alt5", "8 ALT5 · experimental"],
+  ["fake_tls_auto", "6 Fake TLS Auto · experimental"],
+];
+
 export function Settings() {
   const { settings, loading } = useAppStore();
   const [draft, setDraft] = useState<AppSettings | null>(settings);
@@ -48,26 +57,9 @@ export function Settings() {
         <label>
           Engine strategy
           <select value={draft.engine_strategy} onChange={(event) => setDraft({ ...draft, engine_strategy: event.target.value })}>
-            <option value="general">General</option>
-            <option value="alt">ALT</option>
-            <option value="alt2">ALT2</option>
-            <option value="alt3">ALT3</option>
-            <option value="alt4">ALT4</option>
-            <option value="alt5">ALT5</option>
-            <option value="alt6">ALT6</option>
-            <option value="alt7">ALT7</option>
-            <option value="alt8">ALT8</option>
-            <option value="alt9">ALT9</option>
-            <option value="alt10">ALT10</option>
-            <option value="alt11">ALT11</option>
-            <option value="alt12">ALT12</option>
-            <option value="simple_fake">Simple Fake</option>
-            <option value="simple_fake_alt">Simple Fake ALT</option>
-            <option value="simple_fake_alt2">Simple Fake ALT2</option>
-            <option value="fake_tls_auto">Fake TLS Auto</option>
-            <option value="fake_tls_auto_alt">Fake TLS Auto ALT</option>
-            <option value="fake_tls_auto_alt2">Fake TLS Auto ALT2</option>
-            <option value="fake_tls_auto_alt3">Fake TLS Auto ALT3</option>
+            {visibleEngineStrategies.map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
           </select>
         </label>
         <div className="settings-note wide-field">

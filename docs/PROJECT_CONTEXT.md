@@ -21,6 +21,7 @@ Current test installer:
 
 ## Recent Important Commits
 
+- `7820515 engine: disable messaging argv injection`
 - `cc1b3ef engine: add messaging profile diagnostics`
 - `bc0f094 engine: improve telegram whatsapp diagnostics`
 - `c93d194 docs: add project context`
@@ -53,6 +54,9 @@ Current test installer:
 
 ## Current Problems / Blockers
 
+- User clarified after the hotfix discussion: Discord and YouTube are also not confirmed working now. Current blocker is all target services failing or unconfirmed: Discord, YouTube, Telegram, WhatsApp.
+- Strategy status must be treated as unknown until validated end-to-end with a live `winws.exe` process and fresh `engine-launch.log`.
+- ALT6 is reported broken by the user and must stay hidden/disabled from normal UI/candidates.
 - User reported after `cc1b3ef`: nothing works, including previously working Discord/YouTube. Hotfix disables automatic profile-specific argv injection and returns to the known general strategy launch path.
 - User tested v1.2-test line: Telegram and WhatsApp do not work on any general strategy, including web and desktop apps.
 - Telegram/WhatsApp diagnostics/export remain, but runtime launch must not modify known-working Flowseal `general*.bat` argv until the change is isolated and tested.
@@ -107,6 +111,21 @@ Hotfix checks passed on 2026-06-29 after disabling automatic profile-specific ar
 - `cargo tauri build`
 - Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
 
+Current strategy/live-diagnostics block pending checks:
+
+- User-facing strategies pruned to a small list; ALT6 hidden as reported broken.
+- All visible strategies are marked `unknown` or `experimental` until manually validated.
+- Diagnostic export is being expanded with engine process alive, pid, uptime, active strategy, selected profiles, launch log path, and endpoint checks.
+
+Strategy/live-diagnostics checks passed on 2026-06-29:
+
+- `cargo fmt --all --check`
+- `cargo test --workspace`
+- `corepack pnpm test`
+- `corepack pnpm --dir app/frontend build`
+- `cargo tauri build`
+- Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
+
 GitHub Actions:
 
 - Docs/context commit `c93d194`: CI success.
@@ -121,7 +140,8 @@ GitHub Actions:
 - Confirm VPN does not complain after full tray Exit.
 - Confirm `engine-launch.log` gives actionable detail if `winws.exe` exits immediately.
 - Test Telegram only, WhatsApp only, then both together with Discord/YouTube.
-- Decide whether Telegram/WhatsApp need profile-specific automatic strategy switching after manual strategy tests.
+- First restore and confirm a minimal working mode for Discord/YouTube, then continue Telegram/WhatsApp.
+- Prune or promote strategies only after diagnostics confirms real behavior.
 - Create signed release only after user confirms the test build works.
 
 ## Security Rules
