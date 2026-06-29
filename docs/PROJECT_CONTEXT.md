@@ -21,6 +21,7 @@ Current test installer:
 
 ## Recent Important Commits
 
+- `bc0f094 engine: improve telegram whatsapp diagnostics`
 - `c93d194 docs: add project context`
 - `62c15aa ci: use node tauri cli`
 - `1b8a843 engine: cleanup runtime lifecycle`
@@ -80,7 +81,8 @@ GitHub Actions:
 
 - Docs/context commit `c93d194`: CI success.
 - Latest code/build commit `62c15aa`: CI success and Build Windows success.
-- Current Telegram/WhatsApp changes passed local checks and installer rebuild; commit, push, and Actions are pending.
+- Telegram/WhatsApp code commit `bc0f094` was pushed to `main`.
+- Actions status for `bc0f094` is not confirmed from this environment: `gh` is not authenticated and the public GitHub API was unreachable from the local sandbox. Re-check Actions from GitHub UI or an authenticated coordinator thread.
 
 ## Remaining Before Stable v1.2
 
