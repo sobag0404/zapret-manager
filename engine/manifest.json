@@ -159,12 +159,17 @@
       "executable": false
     },
     {
+      "relative_path": "lists/ipset-exclude-user.txt",
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+      "executable": false
+    },
+    {
       "relative_path": "lists/ipset-exclude.txt",
       "sha256": "96c03954012765ce4ab03b9c30f29ab1ca1b698c6752224d03828e6d182eb0fc",
       "executable": false
     },
     {
-      "relative_path": "lists/ipset-exclude-user.txt",
+      "relative_path": "lists/list-exclude-user.txt",
       "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
       "executable": false
     },
@@ -174,8 +179,8 @@
       "executable": false
     },
     {
-      "relative_path": "lists/list-exclude-user.txt",
-      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+      "relative_path": "lists/list-general-user.txt",
+      "sha256": "2640951657949f1b3648c8908fc2441085d904c73b521de79071525006f27f1e",
       "executable": false
     },
     {
@@ -184,13 +189,18 @@
       "executable": false
     },
     {
-      "relative_path": "lists/list-general-user.txt",
-      "sha256": "2640951657949f1b3648c8908fc2441085d904c73b521de79071525006f27f1e",
+      "relative_path": "lists/list-google.txt",
+      "sha256": "1e59f9d487f7bce12091c838151713d0a8d31c3aae20afefebb38206f2cd8232",
       "executable": false
     },
     {
-      "relative_path": "lists/list-google.txt",
-      "sha256": "1e59f9d487f7bce12091c838151713d0a8d31c3aae20afefebb38206f2cd8232",
+      "relative_path": "lists/list-telegram.txt",
+      "sha256": "6a881fc16c04c27498081fdf2f9e7a0491553be8c9b201bdbcda9ce043a8a84d",
+      "executable": false
+    },
+    {
+      "relative_path": "lists/list-whatsapp.txt",
+      "sha256": "ab4d2b17488b00b7ba9ed0e608e4ad89b5d897b2d8583edc5b36ee270ad306ef",
       "executable": false
     },
     {

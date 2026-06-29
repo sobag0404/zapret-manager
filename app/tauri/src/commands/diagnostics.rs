@@ -24,3 +24,11 @@ pub fn run_service_connectivity_tests() -> std::result::Result<DiagnosticReport,
         .map_err(|err| err.to_string())?
         .connectivity_diagnostics())
 }
+
+#[tauri::command]
+pub fn run_messaging_diagnostics() -> std::result::Result<DiagnosticReport, String> {
+    Ok(client()
+        .lock()
+        .map_err(|err| err.to_string())?
+        .messaging_diagnostics())
+}

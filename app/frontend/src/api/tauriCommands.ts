@@ -228,8 +228,13 @@ export const tauriCommands = {
       const report = mockDiagnostics();
       return { overall: "ok", items: report.items.filter((item) => ["internet", "discord", "youtube", "telegram", "whatsapp"].includes(item.id)) };
     }),
+  runMessagingDiagnostics: () =>
+    call<DiagnosticReport>("run_messaging_diagnostics", undefined, () => {
+      const report = mockDiagnostics();
+      return { overall: "warning", items: report.items.filter((item) => ["telegram", "whatsapp", "engine_found", "admin"].includes(item.id)) };
+    }),
   readUserLogs: () => call<string>("read_user_logs", undefined, () => userLog),
-  exportDebugLogs: () => call<string>("export_debug_logs", undefined, () => "logs/debug-export.jsonl"),
+  exportDebugLogs: () => call<string>("export_debug_logs", undefined, () => "logs/diagnostic-export.txt"),
   checkStrategyUpdates: () =>
     call<StrategyUpdateStatus>("check_strategy_updates", undefined, () => ({
       app_version: APP_VERSION,

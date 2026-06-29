@@ -32,6 +32,7 @@ fn main() {
             run_diagnostics,
             run_dns_check,
             run_service_connectivity_tests,
+            run_messaging_diagnostics,
             read_user_logs,
             export_debug_logs,
             check_strategy_updates,

@@ -286,7 +286,7 @@ impl ServiceClient {
         let profiles_found = !self.list_profiles().unwrap_or_default().is_empty();
         let engine = self.engine_readiness();
         let admin = is_elevated();
-        DiagnosticReport::aggregate(vec![
+        let mut items = vec![
             diag(
                 "admin",
                 "Права администратора",
@@ -410,7 +410,9 @@ impl ServiceClient {
             diag("snapshot", "Snapshot можно создать", DiagnosticStatus::Ok, "Snapshot пишется перед каждым включением."),
             diag("revert", "Revert можно выполнить", DiagnosticStatus::Ok, "Выключение останавливает engine и очищает активное состояние."),
             diag("strategy_integrity", "Последняя стратегия не повреждена", DiagnosticStatus::Ok, "Manifest стратегий валиден."),
-        ])
+        ];
+        items.extend(self.runtime_diagnostic_items());
+        DiagnosticReport::aggregate(items)
     }
 
     pub fn dns_diagnostics(&self) -> DiagnosticReport {
@@ -441,6 +443,101 @@ impl ServiceClient {
         DiagnosticReport::aggregate(items)
     }
 
+    pub fn messaging_diagnostics(&self) -> DiagnosticReport {
+        let mut items = self.runtime_diagnostic_items();
+        for (profile, host) in connectivity_targets() {
+            if matches!(profile, "telegram" | "whatsapp") {
+                let dns = check_dns(host);
+                items.push(DiagnosticItem {
+                    id: format!("dns_{profile}_{host}").replace('.', "_"),
+                    title: format!("DNS {profile}: {host}"),
+                    status: if dns.ok {
+                        DiagnosticStatus::Ok
+                    } else {
+                        DiagnosticStatus::Error
+                    },
+                    problem: dns.problem,
+                    action: Some(dns.action),
+                });
+                items.push(connectivity_item(profile, host, 443));
+                items.push(tls_item(profile, host));
+            }
+        }
+        DiagnosticReport::aggregate(items)
+    }
+
+    fn runtime_diagnostic_items(&self) -> Vec<DiagnosticItem> {
+        let profiles = if self.enabled_profiles.is_empty() {
+            "не выбраны".to_string()
+        } else {
+            self.enabled_profiles.join(", ")
+        };
+        let latest_log = latest_launch_log(&self.data_root);
+        let winws_report = runtime_winws_report(&self.data_root.join("engine-runtime"))
+            .unwrap_or_else(|err| format!("process_check_error={err}"));
+        vec![
+            diag(
+                "active_strategy",
+                "Активная стратегия",
+                DiagnosticStatus::Ok,
+                &format!(
+                    "Текущая engine strategy: {}.",
+                    self.settings.engine_strategy
+                ),
+            ),
+            diag(
+                "selected_profiles",
+                "Выбранные профили",
+                if self.enabled_profiles.is_empty() {
+                    DiagnosticStatus::Warning
+                } else {
+                    DiagnosticStatus::Ok
+                },
+                &format!("Профили: {profiles}."),
+            ),
+            diag(
+                "launch_log",
+                "Лог запуска engine",
+                if latest_log.is_some() {
+                    DiagnosticStatus::Ok
+                } else {
+                    DiagnosticStatus::Warning
+                },
+                &latest_log
+                    .as_ref()
+                    .map(|path| format!("Последний engine-launch.log: {}.", path.display()))
+                    .unwrap_or_else(|| {
+                        "engine-launch.log ещё не найден. Нажмите Включить и повторите диагностику."
+                            .to_string()
+                    }),
+            ),
+            diag(
+                "admin_state",
+                "Права администратора",
+                if is_elevated() {
+                    DiagnosticStatus::Ok
+                } else {
+                    DiagnosticStatus::Warning
+                },
+                if is_elevated() {
+                    "Процесс запущен с правами администратора."
+                } else {
+                    "GUI не elevated; при включении будет UAC для winws.exe."
+                },
+            ),
+            diag(
+                "winws_runtime_process",
+                "Активный winws.exe",
+                if winws_report.contains("pid=") {
+                    DiagnosticStatus::Ok
+                } else {
+                    DiagnosticStatus::Warning
+                },
+                &winws_report,
+            ),
+        ]
+    }
+
     pub fn read_user_logs(&self) -> Result<String> {
         let path = self.data_root.join("logs").join("user.log");
         if !path.exists() {
@@ -450,16 +547,56 @@ impl ServiceClient {
     }
 
     pub fn export_debug_logs(&self) -> Result<PathBuf> {
-        let source = self.data_root.join("logs").join("debug.jsonl");
-        let target = self.data_root.join("logs").join("debug-export.jsonl");
-        if !source.exists() {
-            fs::write(&source, "")
-                .map_err(|source_err| zapret_manager_core::io_error(&source, source_err))?;
-        }
-        fs::copy(&source, &target)
+        let logs_dir = self.data_root.join("logs");
+        fs::create_dir_all(&logs_dir)
+            .map_err(|source_err| zapret_manager_core::io_error(&logs_dir, source_err))?;
+        let target = logs_dir.join("diagnostic-export.txt");
+        let debug_log = read_sanitized_log(&self.data_root.join("logs").join("debug.jsonl"), 80);
+        let user_log = read_sanitized_log(&self.data_root.join("logs").join("user.log"), 80);
+        let launch_log_path = latest_launch_log(&self.data_root);
+        let launch_log = launch_log_path
+            .as_ref()
+            .map(|path| read_sanitized_log(path, 200))
+            .unwrap_or_else(|| "engine-launch.log not found".to_string());
+        let runtime_report = runtime_winws_report(&self.data_root.join("engine-runtime"))
+            .unwrap_or_else(|err| format!("process_check_error={err}"));
+        let diagnostic_text = format!(
+            "Zapret Manager diagnostic export\n\
+             version=1.2.0\n\
+             enabled={}\n\
+             selected_profiles={}\n\
+             active_strategy={}\n\
+             admin={}\n\
+             winws_runtime_process={}\n\
+             latest_launch_log={}\n\n\
+             [user.log tail]\n{}\n\n\
+             [debug.jsonl tail]\n{}\n\n\
+             [engine-launch.log tail]\n{}\n",
+            self.enabled,
+            if self.enabled_profiles.is_empty() {
+                "none".to_string()
+            } else {
+                self.enabled_profiles.join(",")
+            },
+            self.settings.engine_strategy,
+            is_elevated(),
+            runtime_report,
+            launch_log_path
+                .as_ref()
+                .map(|path| sanitize_text(
+                    &self.data_root,
+                    &self.content_root,
+                    &path.display().to_string()
+                ))
+                .unwrap_or_else(|| "not_found".to_string()),
+            user_log,
+            debug_log,
+            launch_log
+        );
+        fs::write(&target, diagnostic_text)
             .map_err(|source_err| zapret_manager_core::io_error(&target, source_err))?;
         self.log_user(&format!(
-            "Технический лог экспортирован: {}.",
+            "Диагностический пакет экспортирован: {}.",
             target.display()
         ))?;
         Ok(target)
@@ -652,13 +789,15 @@ impl ServiceClient {
             "info",
             "engine_start_winws_direct",
             &format!(
-                "stage=start_engine, bat={}, strategy={}, profiles={}, exe={}, args={}, hostlists={}, log={}",
+                "stage=start_engine, bat={}, strategy={}, profiles={}, exe={}, args={}, profile_filters={}, hostlists={}, ipsets={}, log={}",
                 bat.display(),
                 strategy,
                 profiles.join(","),
                 launch.exe_path.display(),
                 launch.args.len(),
+                launch.profile_filters.join(","),
                 launch.hostlists.join(","),
+                launch.ipsets.join(","),
                 launch.log_path.display()
             ),
         )?;
@@ -767,6 +906,8 @@ struct WinwsLaunch {
     args: Vec<String>,
     log_path: PathBuf,
     hostlists: Vec<String>,
+    ipsets: Vec<String>,
+    profile_filters: Vec<String>,
 }
 
 fn build_winws_launch(
@@ -805,11 +946,23 @@ fn build_winws_launch(
             exe_path.display()
         )));
     }
+    let profile_filters =
+        append_profile_filters(&mut parts, &lists_dir, strategy, selected_profiles);
     let hostlists = collect_hostlists(&parts);
-    let profile_report = profile_launch_report(selected_profiles, strategy, &hostlists);
+    let ipsets = collect_ipsets(&parts);
+    let profile_report = profile_launch_report(selected_profiles, strategy, &hostlists, &ipsets);
+    let full_command = format!(
+        "{} {}",
+        exe_path.display(),
+        parts
+            .iter()
+            .map(|arg| quote_cmd_arg(arg))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
 
     let log_text = format!(
-        "Starting winws directly\nstrategy={}\nnormalized_strategy={}\nselected_profiles={}\nprofile_strategy_candidates={}\nprofile_hostlist_coverage={}\nused_hostlists={}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
+        "Starting winws directly\nstrategy={}\nnormalized_strategy={}\nselected_profiles={}\nprofile_strategy_candidates={}\nprofile_hostlist_coverage={}\nprofile_filters_added={}\nused_hostlists={}\nused_ipsets={}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
         bat.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("strategy"),
@@ -817,7 +970,9 @@ fn build_winws_launch(
         normalized_profiles(selected_profiles).join(","),
         profile_report.strategy_candidates,
         profile_report.hostlist_coverage,
+        profile_filters.join(","),
         hostlists.join(","),
+        ipsets.join(","),
         is_elevated(),
         bin_dir.display(),
         exe_path.display(),
@@ -825,7 +980,7 @@ fn build_winws_launch(
         bin_dir.join("WinDivert.dll").is_file(),
         bin_dir.join("WinDivert64.sys").is_file(),
         parts.len(),
-        expanded
+        full_command
     );
     fs::write(&log, log_text).map_err(|source| zapret_manager_core::io_error(&log, source))?;
 
@@ -835,6 +990,8 @@ fn build_winws_launch(
         args: parts,
         log_path: log,
         hostlists,
+        ipsets,
+        profile_filters,
     })
 }
 
@@ -847,6 +1004,7 @@ fn profile_launch_report(
     selected_profiles: &[String],
     current_strategy: &str,
     hostlists: &[String],
+    ipsets: &[String],
 ) -> ProfileLaunchReport {
     let profiles = normalized_profiles(selected_profiles);
     let strategy_candidates = profiles
@@ -863,6 +1021,10 @@ fn profile_launch_report(
         .iter()
         .map(|hostlist| hostlist.to_ascii_lowercase())
         .collect::<Vec<_>>();
+    let lower_ipsets = ipsets
+        .iter()
+        .map(|ipset| ipset.to_ascii_lowercase())
+        .collect::<Vec<_>>();
     let hostlist_coverage = profiles
         .iter()
         .filter(|profile| matches!(profile.as_str(), "telegram" | "whatsapp"))
@@ -871,8 +1033,15 @@ fn profile_launch_report(
             let covered_by_general_user = lower_hostlists
                 .iter()
                 .any(|hostlist| hostlist.ends_with("list-general-user.txt"));
+            let covered_by_profile_list = lower_hostlists
+                .iter()
+                .any(|hostlist| hostlist.ends_with(&format!("list-{profile}.txt")));
+            let covered_by_ipset = profile == "telegram"
+                && lower_ipsets
+                    .iter()
+                    .any(|ipset| ipset.ends_with("ipset-all.txt"));
             format!(
-                "{profile}: domains={}, covered_by_list_general_user={covered_by_general_user}",
+                "{profile}: domains={}, covered_by_list_general_user={covered_by_general_user}, covered_by_profile_list={covered_by_profile_list}, covered_by_ipset={covered_by_ipset}",
                 domains.join("|")
             )
         })
@@ -886,6 +1055,144 @@ fn profile_launch_report(
             hostlist_coverage
         },
     }
+}
+
+fn append_profile_filters(
+    args: &mut Vec<String>,
+    lists_dir: &Path,
+    strategy: &str,
+    selected_profiles: &[String],
+) -> Vec<String> {
+    let profiles = normalized_profiles(selected_profiles);
+    let mut added = Vec::new();
+    let include_telegram = profiles.iter().any(|profile| profile == "telegram");
+    let include_whatsapp = profiles.iter().any(|profile| profile == "whatsapp");
+
+    if include_telegram {
+        append_telegram_filters(args, lists_dir, strategy);
+        added.push("telegram_tcp_ipset_80_88_443_5222".to_string());
+        added.push("telegram_udp_ipset_443".to_string());
+        added.push("telegram_hostlist_80_443".to_string());
+    }
+
+    if include_whatsapp {
+        append_whatsapp_filters(args, lists_dir, strategy);
+        added.push("whatsapp_hostlist_80_443_5222_5223_5228_5242".to_string());
+    }
+
+    added
+}
+
+fn append_telegram_filters(args: &mut Vec<String>, lists_dir: &Path, strategy: &str) {
+    let telegram_list = lists_dir
+        .join("list-telegram.txt")
+        .to_string_lossy()
+        .to_string();
+    let ipset_all = lists_dir
+        .join("ipset-all.txt")
+        .to_string_lossy()
+        .to_string();
+    let list_exclude = lists_dir
+        .join("list-exclude.txt")
+        .to_string_lossy()
+        .to_string();
+    let list_exclude_user = lists_dir
+        .join("list-exclude-user.txt")
+        .to_string_lossy()
+        .to_string();
+    let ipset_exclude = lists_dir
+        .join("ipset-exclude.txt")
+        .to_string_lossy()
+        .to_string();
+    let ipset_exclude_user = lists_dir
+        .join("ipset-exclude-user.txt")
+        .to_string_lossy()
+        .to_string();
+
+    args.push("--new".to_string());
+    args.push("--filter-tcp=80,443".to_string());
+    args.push(format!("--hostlist={telegram_list}"));
+    args.push(format!("--hostlist-exclude={list_exclude}"));
+    args.push(format!("--hostlist-exclude={list_exclude_user}"));
+    args.extend(strategy_tcp_args(strategy, false));
+
+    args.push("--new".to_string());
+    args.push("--filter-tcp=80,88,443,5222".to_string());
+    args.push(format!("--ipset={ipset_all}"));
+    args.push(format!("--ipset-exclude={ipset_exclude}"));
+    args.push(format!("--ipset-exclude={ipset_exclude_user}"));
+    args.extend(strategy_tcp_args(strategy, true));
+
+    args.push("--new".to_string());
+    args.push("--filter-udp=443".to_string());
+    args.push(format!("--ipset={ipset_all}"));
+    args.push(format!("--ipset-exclude={ipset_exclude}"));
+    args.push(format!("--ipset-exclude={ipset_exclude_user}"));
+    args.extend(strategy_udp_args(strategy));
+}
+
+fn append_whatsapp_filters(args: &mut Vec<String>, lists_dir: &Path, strategy: &str) {
+    let whatsapp_list = lists_dir
+        .join("list-whatsapp.txt")
+        .to_string_lossy()
+        .to_string();
+    let list_exclude = lists_dir
+        .join("list-exclude.txt")
+        .to_string_lossy()
+        .to_string();
+    let list_exclude_user = lists_dir
+        .join("list-exclude-user.txt")
+        .to_string_lossy()
+        .to_string();
+
+    args.push("--new".to_string());
+    args.push("--filter-tcp=80,443,5222,5223,5228,5242".to_string());
+    args.push(format!("--hostlist={whatsapp_list}"));
+    args.push(format!("--hostlist-exclude={list_exclude}"));
+    args.push(format!("--hostlist-exclude={list_exclude_user}"));
+    args.extend(strategy_tcp_args(strategy, true));
+}
+
+fn strategy_tcp_args(strategy: &str, any_protocol: bool) -> Vec<String> {
+    let mut args = match strategy {
+        "alt2" | "alt6" | "alt11" | "alt12" => vec![
+            "--dpi-desync=multisplit",
+            "--dpi-desync-split-seqovl=652",
+            "--dpi-desync-split-pos=2",
+        ],
+        "alt3" | "alt7" | "alt9" => {
+            vec!["--dpi-desync=fake,hostfakesplit", "--dpi-desync-fooling=ts"]
+        }
+        "simple_fake" | "simple_fake_alt" | "simple_fake_alt2" | "fake_tls_auto"
+        | "fake_tls_auto_alt" | "fake_tls_auto_alt2" | "fake_tls_auto_alt3" | "alt10" => {
+            vec!["--dpi-desync=fake", "--dpi-desync-repeats=6"]
+        }
+        _ => vec![
+            "--dpi-desync=fake,fakedsplit",
+            "--dpi-desync-repeats=6",
+            "--dpi-desync-fooling=ts",
+        ],
+    }
+    .into_iter()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+
+    if any_protocol {
+        args.push("--dpi-desync-any-protocol=1".to_string());
+    }
+    args
+}
+
+fn strategy_udp_args(strategy: &str) -> Vec<String> {
+    let repeats = match strategy {
+        "alt11" | "alt12" => "11",
+        "alt7" | "simple_fake_alt" => "10",
+        _ => "6",
+    };
+    vec![
+        "--dpi-desync=fake".to_string(),
+        format!("--dpi-desync-repeats={repeats}"),
+    ]
 }
 
 fn normalized_profiles(selected_profiles: &[String]) -> Vec<String> {
@@ -961,6 +1268,20 @@ fn collect_hostlists(args: &[String]) -> Vec<String> {
     hostlists.sort();
     hostlists.dedup();
     hostlists
+}
+
+fn collect_ipsets(args: &[String]) -> Vec<String> {
+    let mut ipsets = args
+        .iter()
+        .filter_map(|arg| {
+            arg.strip_prefix("--ipset=")
+                .or_else(|| arg.strip_prefix("--ipset-ip="))
+                .map(|value| value.trim_matches('"').to_string())
+        })
+        .collect::<Vec<_>>();
+    ipsets.sort();
+    ipsets.dedup();
+    ipsets
 }
 
 fn extract_winws_command(source: &str) -> Option<String> {
@@ -1253,6 +1574,83 @@ fn append_launch_log(path: &Path, message: &str) {
     }
 }
 
+fn latest_launch_log(data_root: &Path) -> Option<PathBuf> {
+    let runtime_root = data_root.join("engine-runtime");
+    let entries = fs::read_dir(runtime_root).ok()?;
+    entries
+        .flatten()
+        .map(|entry| entry.path().join("engine-launch.log"))
+        .filter(|path| path.is_file())
+        .filter_map(|path| {
+            let modified = fs::metadata(&path).and_then(|meta| meta.modified()).ok()?;
+            Some((modified, path))
+        })
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path)
+}
+
+fn read_sanitized_log(path: &Path, max_lines: usize) -> String {
+    let Ok(text) = fs::read_to_string(path) else {
+        return "not_found".to_string();
+    };
+    let lines = text.lines().rev().take(max_lines).collect::<Vec<_>>();
+    lines
+        .into_iter()
+        .rev()
+        .map(|line| sanitize_text(&data_root(), &project_root(), line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn sanitize_text(data_root: &Path, content_root: &Path, text: &str) -> String {
+    text.replace(
+        &data_root.to_string_lossy().to_string(),
+        "%LOCALAPPDATA%\\ZapretManager",
+    )
+    .replace(&content_root.to_string_lossy().to_string(), "%APPDIR%")
+}
+
+#[cfg(windows)]
+fn runtime_winws_report(runtime_root: &Path) -> Result<String> {
+    if !runtime_root.exists() {
+        return Ok("runtime_root_missing=true; winws_running=false".to_string());
+    }
+    let root = powershell_single_quote(&runtime_root.to_string_lossy().to_lowercase());
+    let script = format!(
+        "$root = '{root}'; \
+         $items = Get-CimInstance Win32_Process -Filter \"Name = 'winws.exe'\" | \
+           Where-Object {{ $_.CommandLine -and $_.CommandLine.ToLowerInvariant().Contains($root) }} | \
+           Select-Object ProcessId,CommandLine; \
+         if (-not $items) {{ 'winws_running=false' }} else {{ \
+           foreach ($p in $items) {{ \"pid=$($p.ProcessId); command=$($p.CommandLine)\" }} \
+         }}"
+    );
+    let mut command = Command::new("powershell.exe");
+    command.args(["-NoProfile", "-Command", &script]);
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command
+        .output()
+        .map_err(|source| zapret_manager_core::io_error(runtime_root, source))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if output.status.success() {
+        Ok(if stdout.is_empty() {
+            "winws_running=false".to_string()
+        } else {
+            sanitize_text(&data_root(), &project_root(), &stdout)
+        })
+    } else {
+        Err(ZapretError::Operation(format!(
+            "Scoped process check failed: {stderr}"
+        )))
+    }
+}
+
+#[cfg(not(windows))]
+fn runtime_winws_report(_runtime_root: &Path) -> Result<String> {
+    Ok("windows_only=false; winws_running=false".to_string())
+}
+
 struct NetworkCheck {
     ok: bool,
     problem: Option<String>,
@@ -1268,6 +1666,8 @@ fn connectivity_targets() -> Vec<(&'static str, &'static str)> {
         ("telegram", "api.telegram.org"),
         ("whatsapp", "web.whatsapp.com"),
         ("whatsapp", "www.whatsapp.com"),
+        ("whatsapp", "static.whatsapp.net"),
+        ("whatsapp", "mmg.whatsapp.net"),
         ("whatsapp", "g.whatsapp.net"),
     ]
 }
@@ -1344,6 +1744,82 @@ fn check_tcp(host: &str, port: u16) -> NetworkCheck {
         ok: false,
         problem: Some(format!("TCP {port} для {host} не отвечает.")),
         action: "Выключите режим, выберите другую стратегию на главной странице и включите снова. Для Telegram/WhatsApp начните с ALT, ALT3, Simple Fake или ALT5.".to_string(),
+    }
+}
+
+fn tls_item(profile: &str, host: &str) -> DiagnosticItem {
+    let result = check_tls(host);
+    DiagnosticItem {
+        id: format!("tls_{profile}_{host}").replace('.', "_"),
+        title: format!("TLS {profile}: {host}"),
+        status: if result.ok {
+            DiagnosticStatus::Ok
+        } else {
+            DiagnosticStatus::Warning
+        },
+        problem: result.problem,
+        action: Some(result.action),
+    }
+}
+
+#[cfg(windows)]
+fn check_tls(host: &str) -> NetworkCheck {
+    let host = host.trim();
+    if !host
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '-')
+    {
+        return NetworkCheck {
+            ok: false,
+            problem: Some("Некорректный host для TLS проверки.".to_string()),
+            action: "Проверьте endpoint в диагностике.".to_string(),
+        };
+    }
+    let host_ps = powershell_single_quote(host);
+    let script = format!(
+        "$hostName = '{host_ps}'; \
+         $tcp = New-Object System.Net.Sockets.TcpClient; \
+         $iar = $tcp.BeginConnect($hostName, 443, $null, $null); \
+         if (-not $iar.AsyncWaitHandle.WaitOne(5000, $false)) {{ $tcp.Close(); throw 'TCP timeout' }}; \
+         $tcp.EndConnect($iar); \
+         $ssl = New-Object System.Net.Security.SslStream($tcp.GetStream(), $false); \
+         $ssl.AuthenticateAsClient($hostName); \
+         \"tls_ok protocol=$($ssl.SslProtocol)\"; \
+         $ssl.Dispose(); $tcp.Close();"
+    );
+    let mut command = Command::new("powershell.exe");
+    command.args(["-NoProfile", "-Command", &script]);
+    command.creation_flags(CREATE_NO_WINDOW);
+    match command.output() {
+        Ok(output) if output.status.success() => NetworkCheck {
+            ok: true,
+            problem: None,
+            action: String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        },
+        Ok(output) => NetworkCheck {
+            ok: false,
+            problem: Some(format!(
+                "TLS ошибка для {host}: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )),
+            action:
+                "Если DNS/TCP OK, но TLS fail, попробуйте другую стратегию и проверьте VPN/proxy."
+                    .to_string(),
+        },
+        Err(err) => NetworkCheck {
+            ok: false,
+            problem: Some(format!("TLS проверка не запустилась для {host}: {err}.")),
+            action: "Повторите диагностику или экспортируйте диагностический пакет.".to_string(),
+        },
+    }
+}
+
+#[cfg(not(windows))]
+fn check_tls(_host: &str) -> NetworkCheck {
+    NetworkCheck {
+        ok: false,
+        problem: Some("TLS проверка доступна только на Windows.".to_string()),
+        action: "Запустите диагностику в установленном Windows приложении.".to_string(),
     }
 }
 
@@ -1461,13 +1937,30 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             .hostlists
             .iter()
             .any(|hostlist| hostlist.ends_with("list-general.txt")));
+        assert!(launch
+            .hostlists
+            .iter()
+            .any(|hostlist| hostlist.ends_with("list-telegram.txt")));
+        assert!(launch
+            .hostlists
+            .iter()
+            .any(|hostlist| hostlist.ends_with("list-whatsapp.txt")));
+        assert!(launch
+            .ipsets
+            .iter()
+            .any(|ipset| ipset.ends_with("ipset-all.txt")));
+        assert!(launch
+            .profile_filters
+            .contains(&"telegram_tcp_ipset_80_88_443_5222".to_string()));
         assert!(log.contains("work_dir="));
         assert!(log.contains("selected_profiles=telegram,whatsapp"));
         assert!(log.contains("profile_strategy_candidates=telegram="));
+        assert!(log.contains("profile_filters_added="));
         assert!(log.contains("used_hostlists="));
+        assert!(log.contains("used_ipsets="));
         assert!(log.contains("windivert_dll=true"));
         assert!(log.contains("windivert_sys=true"));
-        assert!(log.contains("argv=1"));
+        assert!(log.contains("--filter-tcp=80,88,443,5222"));
         assert!(log.contains("command="));
 
         let _ = fs::remove_dir_all(root);
@@ -1481,8 +1974,12 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
     #[test]
     fn profile_report_tracks_telegram_whatsapp_coverage() {
         let profiles = vec!["common".to_string()];
-        let hostlists = vec!["C:\\Runtime\\lists\\list-general-user.txt".to_string()];
-        let report = profile_launch_report(&profiles, "alt5", &hostlists);
+        let hostlists = vec![
+            "C:\\Runtime\\lists\\list-general-user.txt".to_string(),
+            "C:\\Runtime\\lists\\list-telegram.txt".to_string(),
+        ];
+        let ipsets = vec!["C:\\Runtime\\lists\\ipset-all.txt".to_string()];
+        let report = profile_launch_report(&profiles, "alt5", &hostlists, &ipsets);
 
         assert!(report.strategy_candidates.contains("telegram="));
         assert!(report.strategy_candidates.contains("whatsapp="));
@@ -1491,6 +1988,10 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         assert!(report
             .hostlist_coverage
             .contains("covered_by_list_general_user=true"));
+        assert!(report
+            .hostlist_coverage
+            .contains("covered_by_profile_list=true"));
+        assert!(report.hostlist_coverage.contains("covered_by_ipset=true"));
     }
 
     fn test_runtime_dir(name: &str) -> PathBuf {

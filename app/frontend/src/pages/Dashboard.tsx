@@ -26,12 +26,19 @@ const engineStrategies = [
   { id: "fake_tls_auto_alt3", name: "20 Fake TLS Auto ALT3", detail: "Auto fake TLS ts" },
 ];
 
+const messagingStrategyCandidates = ["alt", "alt3", "simple_fake", "alt5", "fake_tls_auto", "alt2", "alt11"];
+
 export function Dashboard() {
   const { status, profiles, selectedProfiles, diagnostics, loading, settings } = useAppStore();
   const errors = diagnostics.filter((item) => item.status === "error").length;
   const warnings = diagnostics.filter((item) => item.status === "warning").length;
   const engineIssue = diagnostics.find((item) => item.id === "engine_found" && item.status !== "ok");
   const running = status?.status === "running";
+  const singleMessagingProfile = selectedProfiles.length === 1 && ["telegram", "whatsapp"].includes(selectedProfiles[0]) ? selectedProfiles[0] : null;
+  const activeStrategy = settings?.engine_strategy ?? "general";
+  const candidateLabel = singleMessagingProfile
+    ? `${singleMessagingProfile}: ${activeStrategy} (${messagingStrategyCandidates.includes(activeStrategy) ? "candidate" : "custom"})`
+    : null;
 
   return (
     <div className="page-stack">
@@ -74,6 +81,14 @@ export function Dashboard() {
           <span className="eyebrow">Стратегия engine</span>
           <h2>Если сервис не открылся, выключите режим, выберите другую стратегию и включите снова</h2>
         </div>
+        {singleMessagingProfile && (
+          <div className="inline-action">
+            <span>{candidateLabel}</span>
+            <button className="secondary-button" disabled={running || loading.settings} onClick={appActions.nextProfileStrategy} type="button">
+              Следующая стратегия
+            </button>
+          </div>
+        )}
         <div className="strategy-grid">
           {engineStrategies.map((strategy) => {
             const selected = (settings?.engine_strategy ?? "general") === strategy.id;

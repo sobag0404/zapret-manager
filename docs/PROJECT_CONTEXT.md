@@ -52,7 +52,8 @@ Current test installer:
 
 ## Current Problems / Blockers
 
-- User still needs to test the latest `ZapretManager v1.2-test.exe` after Telegram/WhatsApp hostlist and diagnostics changes.
+- User tested v1.2-test line: Telegram and WhatsApp do not work on any general strategy, including web and desktop apps.
+- Current block adds profile-specific Telegram/WhatsApp filters and diagnostics because relying only on `general*.bat` was not enough.
 - If enable fails again, the next required input is the new `engine-launch.log` path shown by the app.
 - Telegram/WhatsApp strategy effectiveness is not confirmed stable yet. Current fix improves domain/ip coverage and diagnostics without changing working Discord/YouTube strategy behavior.
 - Snapshot/revert is still mostly architectural/mock for system DNS/proxy/firewall state.
@@ -69,6 +70,22 @@ Local checks passed on 2026-06-26:
 - Test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
 
 Local checks passed on 2026-06-29 for Telegram/WhatsApp diagnostics changes:
+
+- `cargo fmt --all --check`
+- `cargo test --workspace`
+- `corepack pnpm test`
+- `corepack pnpm --dir app/frontend build`
+- `cargo tauri build`
+- Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
+
+Current block pending checks:
+
+- Profile-specific Telegram/WhatsApp runtime filters.
+- `Диагностировать Telegram/WhatsApp` action with DNS/TCP/TLS/runtime status.
+- Sanitized `diagnostic-export.txt` package for user reports.
+- Manual `Следующая стратегия` button for Telegram-only and WhatsApp-only selection.
+
+Local checks passed on 2026-06-29 for profile-specific Telegram/WhatsApp block:
 
 - `cargo fmt --all --check`
 - `cargo test --workspace`

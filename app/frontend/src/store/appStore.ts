@@ -149,6 +149,10 @@ export const appActions = {
     const report = await runAction("connectivity", tauriCommands.runServiceConnectivityTests);
     if (report) setState({ diagnostics: report.items });
   },
+  runMessagingDiagnostics: async () => {
+    const report = await runAction("messaging-diagnostics", tauriCommands.runMessagingDiagnostics);
+    if (report) setState({ diagnostics: report.items });
+  },
   recoveryAction: async (id: string) => {
     const actions: Record<string, () => Promise<unknown>> = {
       repair_driver: tauriCommands.repairDriver,
@@ -201,6 +205,17 @@ export const appActions = {
     setState({ settings: nextSettings, error: null });
     const saved = await runAction("settings", () => tauriCommands.saveSettings(nextSettings));
     if (saved) setState({ settings: saved });
+  },
+  nextProfileStrategy: async () => {
+    const profile = state.selectedProfiles.length === 1 ? state.selectedProfiles[0] : null;
+    const candidates =
+      profile === "telegram" || profile === "whatsapp"
+        ? ["alt", "alt3", "simple_fake", "alt5", "fake_tls_auto", "alt2", "alt11"]
+        : ["alt", "alt3", "simple_fake", "alt5"];
+    const current = state.settings?.engine_strategy ?? "general";
+    const currentIndex = candidates.indexOf(current);
+    const engine_strategy = candidates[(currentIndex + 1) % candidates.length];
+    await appActions.setEngineStrategy(engine_strategy);
   },
 };
 

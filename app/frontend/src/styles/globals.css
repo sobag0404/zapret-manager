@@ -354,6 +354,20 @@ main {
   gap: 10px;
 }
 
+.inline-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafb;
+  color: var(--muted);
+}
+
 .strategy-option {
   display: grid;
   gap: 5px;

@@ -19,6 +19,9 @@ export function Diagnostics() {
           <button className="secondary-button" disabled={loading.connectivity} onClick={appActions.runConnectivity}>
             Проверить доступность
           </button>
+          <button className="secondary-button" disabled={loading["messaging-diagnostics"]} onClick={appActions.runMessagingDiagnostics}>
+            Telegram / WhatsApp
+          </button>
           <button className="primary-button" disabled={loading.diagnostics} onClick={appActions.runDiagnostics}>
             <PlayCircle size={17} aria-hidden="true" />
             Проверить всё
