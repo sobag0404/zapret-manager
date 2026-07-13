@@ -54,6 +54,7 @@ Confirmed local install mismatch:
 - Launch logs include build provenance: app version and build id.
 - Build id includes `-dirty` when built from uncommitted local changes; final test installer must be rebuilt after the code commit.
 - Disable/Exit cleanup keeps enabled state if scoped cleanup fails, so the next action can retry cleanup instead of incorrectly enabling.
+- Cleanup failure now reports `RuntimeStatus::Error`; the main toggle shows `Повторить отключение` and calls disable/cleanup again, including orphan-at-start cases.
 - Tray Exit closes only after successful scoped cleanup verification; otherwise the app remains open.
 - Manual snapshot uses the app data root, not `current_dir()`/Program Files.
 - Recovery UI and commands now describe only the safe implemented part: stop managed engine and clean runtime state.

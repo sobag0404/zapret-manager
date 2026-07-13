@@ -167,7 +167,7 @@ export const appActions = {
     setState({ selectedProfiles: nextSelectedProfiles(id, enabled), error: null });
   },
   toggleEnabled: async () => {
-    if (state.status?.status !== "running" && state.selectedProfiles.length === 0) {
+    if (state.status?.status !== "running" && state.status?.status !== "error" && state.selectedProfiles.length === 0) {
       setState({ error: "Выберите хотя бы один режим: Discord, YouTube, Telegram, WhatsApp или Общий." });
       return;
     }

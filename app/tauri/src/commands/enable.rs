@@ -8,12 +8,15 @@ pub fn toggle_enabled(
 ) -> std::result::Result<AppStatus, String> {
     let mut guard = client().lock().map_err(|err| err.to_string())?;
     let status = guard.status().map_err(|err| err.to_string())?;
-    if status.enabled_profiles.is_empty() && profile_ids.is_empty() {
+    if status.status != RuntimeStatus::Error
+        && status.enabled_profiles.is_empty()
+        && profile_ids.is_empty()
+    {
         return Err("Выберите хотя бы один режим.".to_string());
     }
 
     let next = match status.status {
-        RuntimeStatus::Running => guard.disable_all(),
+        RuntimeStatus::Running | RuntimeStatus::Error => guard.disable_all(),
         _ => guard.enable(if profile_ids.is_empty() {
             status.enabled_profiles
         } else {

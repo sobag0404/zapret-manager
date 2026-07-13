@@ -46,6 +46,7 @@ pub struct ServiceClient {
     data_root: PathBuf,
     enabled_profiles: Vec<String>,
     enabled: bool,
+    cleanup_failed: bool,
     settings: AppSettings,
     engine: Option<EngineProcess>,
 }
@@ -70,6 +71,7 @@ impl ServiceClient {
             data_root,
             enabled_profiles: Vec::new(),
             enabled: false,
+            cleanup_failed: false,
             settings,
             engine: None,
         }
@@ -77,14 +79,18 @@ impl ServiceClient {
 
     pub fn status(&self) -> Result<AppStatus> {
         Ok(AppStatus {
-            status: if self.enabled {
+            status: if self.cleanup_failed {
+                RuntimeStatus::Error
+            } else if self.enabled {
                 RuntimeStatus::Running
             } else {
                 RuntimeStatus::Disabled
             },
             enabled_profiles: self.enabled_profiles.clone(),
             profiles: self.list_profiles()?,
-            message: if self.enabled {
+            message: if self.cleanup_failed {
+                "Отключение не завершено".to_string()
+            } else if self.enabled {
                 "Работает".to_string()
             } else {
                 "Отключено".to_string()
@@ -289,17 +295,19 @@ impl ServiceClient {
         }
 
         if cleanup_errors.is_empty() {
-            let (enabled, profiles) =
+            let (enabled, profiles, cleanup_failed) =
                 disable_state_after_cleanup(self.enabled, &self.enabled_profiles, true);
             self.enabled = enabled;
             self.enabled_profiles = profiles;
+            self.cleanup_failed = cleanup_failed;
             self.log_user("Engine остановлен. Активное runtime-состояние очищено. DNS/proxy приложением не менялись.")?;
             self.log_debug("info", "safe_revert_completed", "engine process stopped")?;
         } else {
-            let (enabled, profiles) =
+            let (enabled, profiles, cleanup_failed) =
                 disable_state_after_cleanup(self.enabled, &self.enabled_profiles, false);
             self.enabled = enabled;
             self.enabled_profiles = profiles;
+            self.cleanup_failed = cleanup_failed;
             self.log_user("Отключение выполнено частично: проверьте диагностику и экспорт логов.")?;
             self.log_debug(
                 "error",
@@ -1256,11 +1264,13 @@ fn disable_state_after_cleanup(
     enabled: bool,
     profiles: &[String],
     cleanup_ok: bool,
-) -> (bool, Vec<String>) {
+) -> (bool, Vec<String>, bool) {
     if cleanup_ok {
-        (false, Vec::new())
+        (false, Vec::new(), false)
+    } else if profiles.is_empty() {
+        (true, Vec::new(), true)
     } else {
-        (enabled, profiles.to_vec())
+        (enabled || !profiles.is_empty(), profiles.to_vec(), true)
     }
 }
 
@@ -2281,11 +2291,15 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         let profiles = vec!["discord".to_string(), "youtube".to_string()];
         assert_eq!(
             disable_state_after_cleanup(true, &profiles, true),
-            (false, Vec::new())
+            (false, Vec::new(), false)
         );
         assert_eq!(
             disable_state_after_cleanup(true, &profiles, false),
-            (true, profiles)
+            (true, profiles.clone(), true)
+        );
+        assert_eq!(
+            disable_state_after_cleanup(false, &Vec::new(), false),
+            (true, Vec::new(), true)
         );
     }
 
