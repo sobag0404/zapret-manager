@@ -32,6 +32,8 @@ use zapret_manager_core::{
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+const BUILD_ID: &str = env!("ZAPRET_MANAGER_BUILD_ID");
 
 static STATE: OnceLock<Mutex<ServiceClient>> = OnceLock::new();
 
@@ -89,6 +91,7 @@ impl ServiceClient {
             },
         })
     }
+
     pub fn list_profiles(&self) -> Result<Vec<Profile>> {
         let dir = self.content_root.join("profiles");
         let mut profiles = Vec::new();
@@ -271,17 +274,42 @@ impl ServiceClient {
             cleanup_errors.push(err.to_string());
         }
 
-        self.enabled = false;
-        self.enabled_profiles.clear();
-        self.log_user("Система восстановлена. Временные правила удалены.")?;
+        match verify_no_runtime_winws(&self.data_root.join("engine-runtime")) {
+            Ok(report) => {
+                self.log_debug(
+                    "info",
+                    "disable_process_verify",
+                    &format!(
+                        "runtime_root={}, {report}",
+                        self.data_root.join("engine-runtime").display()
+                    ),
+                )?;
+            }
+            Err(err) => cleanup_errors.push(err.to_string()),
+        }
+
         if cleanup_errors.is_empty() {
+            let (enabled, profiles) =
+                disable_state_after_cleanup(self.enabled, &self.enabled_profiles, true);
+            self.enabled = enabled;
+            self.enabled_profiles = profiles;
+            self.log_user("Engine остановлен. Активное runtime-состояние очищено. DNS/proxy приложением не менялись.")?;
             self.log_debug("info", "safe_revert_completed", "engine process stopped")?;
         } else {
+            let (enabled, profiles) =
+                disable_state_after_cleanup(self.enabled, &self.enabled_profiles, false);
+            self.enabled = enabled;
+            self.enabled_profiles = profiles;
+            self.log_user("Отключение выполнено частично: проверьте диагностику и экспорт логов.")?;
             self.log_debug(
                 "error",
                 "safe_revert_partial",
                 &format!("cleanup_errors={}", cleanup_errors.join(" | ")),
             )?;
+            return Err(ZapretError::Operation(format!(
+                "Отключение выполнено частично: {}",
+                cleanup_errors.join(" | ")
+            )));
         }
         self.status()
     }
@@ -482,6 +510,16 @@ impl ServiceClient {
             .unwrap_or_else(|err| format!("process_check_error={err}"));
         vec![
             diag(
+                "build_identity",
+                "Версия сборки",
+                if BUILD_ID == "unknown" || BUILD_ID.ends_with("-dirty") {
+                    DiagnosticStatus::Warning
+                } else {
+                    DiagnosticStatus::Ok
+                },
+                &format!("Zapret Manager {} build {}.", APP_VERSION, BUILD_ID),
+            ),
+            diag(
                 "active_strategy",
                 "Активная стратегия",
                 DiagnosticStatus::Ok,
@@ -591,6 +629,30 @@ impl ServiceClient {
         fs::read_to_string(&path).map_err(|source| zapret_manager_core::io_error(path, source))
     }
 
+    pub fn create_snapshot(&self) -> Result<SystemSnapshot> {
+        let snapshot = SystemSnapshot::mock(
+            self.enabled_profiles.clone(),
+            vec![format!("strategies:1.0.0, build={}", build_identity())],
+        );
+        snapshot.save(&self.data_root.join("snapshots"))?;
+        self.log_user("Snapshot сохранён в локальную папку данных пользователя.")?;
+        self.log_debug(
+            "info",
+            "snapshot_created_manual",
+            &format!(
+                "path={}, active_profiles={}",
+                self.data_root.join("snapshots").display(),
+                self.enabled_profiles.join(",")
+            ),
+        )?;
+        Ok(snapshot)
+    }
+
+    pub fn restore_snapshot(&mut self) -> Result<AppStatus> {
+        self.log_user("Restore snapshot в v1.2 выполняет безопасную часть: остановку engine и очистку runtime state. DNS/proxy приложением не менялись.")?;
+        self.disable_all()
+    }
+
     pub fn export_debug_logs(&self) -> Result<PathBuf> {
         let logs_dir = self.data_root.join("logs");
         fs::create_dir_all(&logs_dir)
@@ -610,7 +672,8 @@ impl ServiceClient {
         let messaging_checks = diagnostic_report_text(self.messaging_diagnostics());
         let diagnostic_text = format!(
             "Zapret Manager diagnostic export\n\
-             version=1.2.0\n\
+             version={}\n\
+             build_id={}\n\
              enabled={}\n\
              selected_profiles={}\n\
              active_strategy={}\n\
@@ -623,6 +686,8 @@ impl ServiceClient {
              [user.log tail]\n{}\n\n\
              [debug.jsonl tail]\n{}\n\n\
              [engine-launch.log tail]\n{}\n",
+            APP_VERSION,
+            BUILD_ID,
             self.enabled,
             if self.enabled_profiles.is_empty() {
                 "none".to_string()
@@ -869,8 +934,9 @@ impl ServiceClient {
                 );
                 cleanup_runtime_dir_best_effort(runtime_dir);
                 return Err(ZapretError::Operation(format!(
-                    "Engine сразу завершился с кодом {:?}. В engine-launch.log есть preflight и argv_list. Если ошибка повторится, экспортируйте diagnostic-export.txt. Лог запуска: {}",
+                    "Engine сразу завершился с кодом {:?}. Build: {}. В engine-launch.log есть preflight и argv_list. Если ошибка повторится, экспортируйте diagnostic-export.txt. Лог запуска: {}",
                     status.code(),
+                    build_identity(),
                     launch.log_path.display()
                 )));
             }
@@ -887,8 +953,9 @@ impl ServiceClient {
             );
             cleanup_runtime_dir_best_effort(runtime_dir);
             return Err(ZapretError::Operation(format!(
-                "Engine был запущен, но процесс сразу завершился. Exit code: {:?}. В engine-launch.log есть preflight и argv_list; экспортируйте diagnostic-export.txt. Проверьте WinDivert/UAC/антивирус. Лог запуска: {}",
+                "Engine был запущен, но процесс сразу завершился. Exit code: {:?}. Build: {}. В engine-launch.log есть preflight и argv_list; экспортируйте diagnostic-export.txt. Проверьте WinDivert/UAC/антивирус. Лог запуска: {}",
                 exit_code,
+                build_identity(),
                 launch.log_path.display()
             )));
         }
@@ -1021,7 +1088,9 @@ fn build_winws_launch(
     );
 
     let log_text = format!(
-        "Starting winws directly\nstrategy={}\nnormalized_strategy={}\nselected_profiles={}\nprofile_strategy_candidates={}\nprofile_hostlist_coverage={}\nprofile_filters_added=disabled_safe_mode\nused_hostlists={}\nused_ipsets={}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
+        "Starting winws directly\napp_version={}\nbuild_id={}\nstrategy={}\nnormalized_strategy={}\nselected_profiles={}\nprofile_strategy_candidates={}\nprofile_hostlist_coverage={}\nprofile_filters_added=disabled_safe_mode\nused_hostlists={}\nused_ipsets={}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
+        APP_VERSION,
+        BUILD_ID,
         bat.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("strategy"),
@@ -1048,7 +1117,8 @@ fn build_winws_launch(
 
     if let Some(error) = preflight.error {
         return Err(ZapretError::Operation(format!(
-            "Engine preflight failed: {error}. Лог запуска: {}",
+            "Engine preflight failed: {error}. Build: {}. Лог запуска: {}",
+            build_identity(),
             log.display()
         )));
     }
@@ -1182,6 +1252,18 @@ fn looks_like_file_path(value: &str) -> bool {
     value.contains('\\') || value.contains('/')
 }
 
+fn disable_state_after_cleanup(
+    enabled: bool,
+    profiles: &[String],
+    cleanup_ok: bool,
+) -> (bool, Vec<String>) {
+    if cleanup_ok {
+        (false, Vec::new())
+    } else {
+        (enabled, profiles.to_vec())
+    }
+}
+
 fn format_argv_lines(exe_path: &Path, args: &[String]) -> String {
     let mut lines = vec![format!("arg[0]={}", exe_path.display())];
     lines.extend(
@@ -1190,6 +1272,10 @@ fn format_argv_lines(exe_path: &Path, args: &[String]) -> String {
             .map(|(index, arg)| format!("arg[{}]={}", index + 1, arg)),
     );
     lines.join("\n")
+}
+
+fn build_identity() -> String {
+    format!("{APP_VERSION}+{BUILD_ID}")
 }
 
 struct ProfileLaunchReport {
@@ -1381,11 +1467,13 @@ fn extract_winws_command(source: &str) -> Option<String> {
 fn expand_strategy_vars(command: &str, bin_dir: &Path, lists_dir: &Path) -> String {
     let bin = path_var(bin_dir);
     let lists = path_var(lists_dir);
-    command
-        .replace("%BIN%", &bin)
-        .replace("%LISTS%", &lists)
-        .replace("%GameFilterTCP%", "65535")
-        .replace("%GameFilterUDP%", "65535")
+    unescape_cmd_carets(
+        &command
+            .replace("%BIN%", &bin)
+            .replace("%LISTS%", &lists)
+            .replace("%GameFilterTCP%", "65535")
+            .replace("%GameFilterUDP%", "65535"),
+    )
 }
 
 fn path_var(path: &Path) -> String {
@@ -1417,6 +1505,21 @@ fn split_windows_args(command: &str) -> Vec<String> {
         args.push(current);
     }
     args
+}
+
+fn unescape_cmd_carets(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '^' {
+            if let Some(next) = chars.next() {
+                output.push(next);
+            }
+        } else {
+            output.push(ch);
+        }
+    }
+    output
 }
 
 fn launch_winws(launch: &WinwsLaunch) -> Result<(u32, Option<Child>, Option<isize>)> {
@@ -1610,11 +1713,13 @@ fn cleanup_orphan_winws_by_runtime(runtime_root: &Path) -> Result<String> {
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     if output.status.success() {
-        Ok(if stdout.is_empty() {
+        let report = if stdout.is_empty() {
             "orphan_count=0".to_string()
         } else {
             stdout
-        })
+        };
+        verify_no_runtime_winws(runtime_root)?;
+        Ok(report)
     } else {
         Err(ZapretError::Operation(format!(
             "Scoped orphan cleanup failed: {stderr}"
@@ -1625,6 +1730,23 @@ fn cleanup_orphan_winws_by_runtime(runtime_root: &Path) -> Result<String> {
 #[cfg(not(windows))]
 fn cleanup_orphan_winws_by_runtime(_runtime_root: &Path) -> Result<String> {
     Ok("windows_only=false".to_string())
+}
+
+#[cfg(windows)]
+fn verify_no_runtime_winws(runtime_root: &Path) -> Result<String> {
+    let report = runtime_winws_report(runtime_root)?;
+    if report.contains("pid=") {
+        Err(ZapretError::Operation(format!(
+            "Scoped winws cleanup incomplete: {report}"
+        )))
+    } else {
+        Ok(report)
+    }
+}
+
+#[cfg(not(windows))]
+fn verify_no_runtime_winws(runtime_root: &Path) -> Result<String> {
+    runtime_winws_report(runtime_root)
 }
 
 fn powershell_single_quote(value: &str) -> String {
@@ -1961,8 +2083,9 @@ fn cleanup_old_runtime_dirs(runtime_root: &Path, keep: &Path) {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_winws_launch, expand_strategy_vars, extract_winws_command, powershell_single_quote,
-        profile_launch_report, split_windows_args,
+        build_winws_launch, copy_dir_recursive, disable_state_after_cleanup, expand_strategy_vars,
+        extract_winws_command, powershell_single_quote, profile_launch_report, split_windows_args,
+        ServiceClient,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -2080,8 +2203,90 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
     }
 
     #[test]
+    fn visible_strategies_parse_and_preflight_with_spaced_runtime_path() {
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("engine")
+            .join("local");
+        for (strategy, bat_name) in [
+            ("general", "general.bat"),
+            ("alt", "general (ALT).bat"),
+            ("alt3", "general (ALT3).bat"),
+            ("simple_fake", "general (SIMPLE FAKE).bat"),
+            ("alt5", "general (ALT5).bat"),
+            ("fake_tls_auto", "general (FAKE TLS AUTO).bat"),
+        ] {
+            let root = test_runtime_dir(&format!("John Smith {strategy}"));
+            copy_dir_recursive(&source, &root).expect("runtime copy");
+            let profiles = vec!["discord".to_string(), "youtube".to_string()];
+            let launch = build_winws_launch(&root.join(bat_name), &root, strategy, &profiles)
+                .expect(strategy);
+            let log = fs::read_to_string(root.join("engine-launch.log")).expect("log");
+
+            assert_eq!(launch.exe_path, root.join("bin").join("winws.exe"));
+            assert!(!launch.args.is_empty(), "{strategy} argv must not be empty");
+            assert!(
+                launch.args.iter().all(|arg| !arg.contains('"')),
+                "{strategy} argv contains raw quote"
+            );
+            assert!(
+                launch.args.iter().any(|arg| arg
+                    .contains(&root.join("lists").display().to_string())
+                    || arg.contains(&root.join("bin").display().to_string())),
+                "{strategy} should reference runtime files as single args"
+            );
+            assert!(
+                log.contains("preflight_ok=true"),
+                "{strategy} preflight failed"
+            );
+            assert!(log.contains("argv_list_begin"));
+            assert!(log.contains("app_version="));
+            assert!(log.contains("build_id="));
+            assert!(
+                !log.contains("^!"),
+                "{strategy} still contains cmd caret escape in direct argv log"
+            );
+
+            let _ = fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    fn manual_snapshot_uses_data_root_not_current_dir() {
+        let content_root = test_runtime_dir("snapshot content");
+        let data_root = test_runtime_dir("snapshot data");
+        fs::create_dir_all(&content_root).expect("content");
+        fs::create_dir_all(&data_root).expect("data");
+        let client = ServiceClient::new(content_root.clone(), data_root.clone());
+
+        client.create_snapshot().expect("snapshot");
+
+        let snapshots = data_root.join("snapshots");
+        assert!(snapshots.is_dir());
+        assert!(fs::read_dir(&snapshots).expect("snapshots").count() > 0);
+        assert!(!content_root.join("snapshots").exists());
+
+        let _ = fs::remove_dir_all(content_root);
+        let _ = fs::remove_dir_all(data_root);
+    }
+
+    #[test]
     fn powershell_quote_escapes_single_quotes() {
         assert_eq!(powershell_single_quote("C:\\A'B"), "C:\\A''B");
+    }
+
+    #[test]
+    fn disable_state_only_clears_after_successful_cleanup() {
+        let profiles = vec!["discord".to_string(), "youtube".to_string()];
+        assert_eq!(
+            disable_state_after_cleanup(true, &profiles, true),
+            (false, Vec::new())
+        );
+        assert_eq!(
+            disable_state_after_cleanup(true, &profiles, false),
+            (true, profiles)
+        );
     }
 
     #[test]

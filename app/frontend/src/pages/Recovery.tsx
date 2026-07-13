@@ -2,12 +2,12 @@ import { RecoveryAction } from "../components/RecoveryAction";
 import { appActions, useAppStore } from "../store/appStore";
 
 const actions = [
-  ["repair_driver", "Проверить драйвер", "Проверить, не блокируется ли запуск WinDivert правами или антивирусом."],
-  ["restart_engine", "Остановить engine", "Остановить активный engine и проверить, что процессы не остались висеть."],
-  ["disable_all", "Удалить временные правила", "Выполнить безопасную очистку временных правил и состояния."],
-  ["create_snapshot", "Создать snapshot", "Сохранить текущее состояние перед ручными действиями."],
-  ["restore_snapshot", "Восстановить состояние системы", "Применить последний snapshot и вернуть настройки."],
-  ["emergency_disable", "Аварийно отключить всё", "Остановить engine, убрать временные правила и восстановить snapshot."],
+  ["repair_driver", "Проверить драйвер", "Ничего не меняет в системе. Подсказывает, что WinDivert проверяется только при запуске engine."],
+  ["restart_engine", "Остановить engine", "Безопасный flow: нажать Выключить, дождаться cleanup, затем снова Включить."],
+  ["disable_all", "Очистить runtime state", "Останавливает только engine, запущенный из ZapretManager engine-runtime, и проверяет что процесс не остался."],
+  ["create_snapshot", "Создать snapshot", "Сохраняет mock snapshot в локальную папку данных пользователя, не в Program Files."],
+  ["restore_snapshot", "Безопасный restore", "В v1.2 выполняет только фактическую безопасную часть: остановку engine и cleanup runtime. DNS/proxy не менялись."],
+  ["emergency_disable", "Аварийно отключить всё", "Повторяет disable/cleanup для управляемого engine. Не трогает чужие процессы winws вне runtime ZapretManager."],
 ] as const;
 
 export function Recovery() {

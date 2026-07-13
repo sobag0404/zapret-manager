@@ -316,9 +316,9 @@ export const tauriCommands = {
       };
     }
   },
-  repairDriver: () => call<string>("repair_driver", undefined, () => "WinDivert проверяется при запуске engine."),
-  repairService: () => call<string>("repair_service", undefined, () => "Локальный backend доступен."),
-  restartEngine: () => call<string>("restart_engine", undefined, () => "Остановите и снова включите режим."),
+  repairDriver: () => call<string>("repair_driver", undefined, () => "WinDivert проверяется только при запуске engine."),
+  repairService: () => call<string>("repair_service", undefined, () => "Локальный backend доступен; Windows-служба в v1.2 не переустанавливается."),
+  restartEngine: () => call<string>("restart_engine", undefined, () => "Сначала нажмите Выключить, затем Включить."),
   emergencyDisable: () => call<AppStatus>("emergency_disable", undefined, () => tauriCommands.disableAll()),
   createSnapshot: () => call<unknown>("create_snapshot", undefined, () => ({ timestamp: now(), active_profiles: mockStatus.enabled_profiles })),
   restoreSnapshot: () => call<AppStatus>("restore_snapshot", undefined, () => tauriCommands.disableAll()),

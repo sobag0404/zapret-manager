@@ -12,6 +12,12 @@ on:
       - "app/**"
       - "core/**"
       - "crates/**"
+      - "engine/**"
+      - "profiles/**"
+      - "strategies/**"
+      - "tests/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
       - "service/**"
       - ".github/workflows/build-windows.yml"
 
@@ -50,6 +56,9 @@ jobs:
       - name: Build frontend
         working-directory: app/frontend
         run: pnpm build
+
+      - name: Verify manifests and resource hashes
+        run: pnpm test
 
       - name: Build Windows installer
         working-directory: app/tauri

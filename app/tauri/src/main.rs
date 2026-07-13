@@ -49,9 +49,9 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("failed to build Zapret Manager")
-        .run(|app, event| {
+        .run(|_app, event| {
             if matches!(event, RunEvent::ExitRequested { .. }) {
-                cleanup_before_exit(app);
+                cleanup_before_forced_exit();
             }
         });
 }
@@ -81,8 +81,11 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             "open" | "diagnostics" | "recovery" => show_main_window(app),
             "toggle" => handle_tray_toggle(app),
             "quit" => {
-                cleanup_before_exit(app);
-                app.exit(0);
+                if cleanup_before_user_exit(app) {
+                    app.exit(0);
+                } else {
+                    show_main_window(app);
+                }
             }
             _ => {}
         })
@@ -102,11 +105,42 @@ fn setup_close_to_tray(app: &AppHandle) {
     }
 }
 
-fn cleanup_before_exit(app: &AppHandle) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExitCleanupDecision {
+    Exit,
+    KeepRunning,
+}
+
+fn exit_cleanup_decision(cleanup_ok: bool) -> ExitCleanupDecision {
+    if cleanup_ok {
+        ExitCleanupDecision::Exit
+    } else {
+        ExitCleanupDecision::KeepRunning
+    }
+}
+
+fn cleanup_before_user_exit(app: &AppHandle) -> bool {
+    let cleanup_ok = match service_client::client().lock() {
+        Ok(mut guard) => guard.disable_all().is_ok(),
+        Err(_) => false,
+    };
+
+    match exit_cleanup_decision(cleanup_ok) {
+        ExitCleanupDecision::Exit => {
+            set_tray_status(app, false);
+            true
+        }
+        ExitCleanupDecision::KeepRunning => {
+            show_main_window(app);
+            false
+        }
+    }
+}
+
+fn cleanup_before_forced_exit() {
     if let Ok(mut guard) = service_client::client().lock() {
         let _ = guard.disable_all();
     }
-    set_tray_status(app, false);
 }
 
 pub(crate) fn set_tray_status(app: &AppHandle, running: bool) {
@@ -144,5 +178,19 @@ fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{exit_cleanup_decision, ExitCleanupDecision};
+
+    #[test]
+    fn exit_cleanup_only_exits_after_successful_cleanup() {
+        assert_eq!(exit_cleanup_decision(true), ExitCleanupDecision::Exit);
+        assert_eq!(
+            exit_cleanup_decision(false),
+            ExitCleanupDecision::KeepRunning
+        );
     }
 }

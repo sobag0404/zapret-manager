@@ -1,12 +1,12 @@
 # Project Context
 
-Last updated: 2026-06-29
+Last updated: 2026-07-13
 
 ## Current Goal
 
-Zapret Manager v1.2: a simple local Windows desktop app that can enable/disable selected profiles, run a verified local engine, cleanly stop on Disable/Exit, and provide enough logs to debug failed `winws.exe` starts.
+Zapret Manager v1.2: stabilize enable/disable/diagnostics around the local verified engine before trying new DPI strategies. Discord, YouTube, Telegram, and WhatsApp must be treated as unconfirmed until a fresh build is manually tested.
 
-This is a local Windows application. It is not a VPN, does not use a third-party traffic server, does not require an account, and does not collect telemetry.
+This is a local Windows app. It is not a VPN, does not use a third-party traffic server, does not require an account, and does not collect telemetry.
 
 ## Protected Artifacts
 
@@ -19,167 +19,88 @@ Current test installer:
 
 - `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
 
+Confirmed local install mismatch:
+
+- Installed `C:\Program Files\Zapret Manager\zapret-manager-tauri.exe`: version `1.2.0`, LastWriteTime `2026-06-26 15:29:14`, SHA256 starts `F00F5755`.
+- Previous test installer from `2026-06-29`: SHA256 starts `CA67FB58`.
+- A local log from `2026-07-08` without `preflight`, `argv_list`, or `build_id` was created by the old installed app, not by the fresh test line.
+
 ## Recent Important Commits
 
+- `351c9f7 docs: update project context`
 - `916ff52 engine: log launch argv preflight`
 - `e03322b diagnostics: prune strategies and add live status`
 - `7820515 engine: disable messaging argv injection`
 - `cc1b3ef engine: add messaging profile diagnostics`
 - `bc0f094 engine: improve telegram whatsapp diagnostics`
-- `c93d194 docs: add project context`
-- `62c15aa ci: use node tauri cli`
-- `1b8a843 engine: cleanup runtime lifecycle`
-- `28f8de3 ci: separate windows build`
-- `863e0c9 ci: fix actions setup`
-- `479a74c engine: fix launch diagnostics`
-- `e12ab2a engine: launch winws directly`
-- `a3a3247 engine: skip service bat launcher`
-- `12147de updater: v1.2 safe updates`
 
-## Done
+## Current Blockers
 
-- Tauri/React UI with profiles for Discord, YouTube, Telegram, WhatsApp, and Common.
-- Real Flowseal-style engine bundle is launched through a checked runtime copy, not directly from GUI resources.
-- Direct `winws.exe` launch path is implemented from selected strategy `.bat`.
-- Telegram/WhatsApp investigation is in progress: launch logs now include selected profiles, profile strategy candidates, used hostlists, and Telegram/WhatsApp hostlist coverage.
-- Telegram/WhatsApp hostlist was cleaned up and extended with focused app/web endpoints; Telegram ipset was aligned with current official Telegram ranges and the bogus documentation IP was removed.
-- DNS/TCP connectivity checks now report concrete Telegram/WhatsApp endpoints instead of a single mock profile status.
-- Enable now creates snapshot state before launch.
-- Disable/emergency disable/tray Exit attempt cleanup and reset runtime state.
-- `engine-launch.log` includes strategy, admin state, work dir, `winws.exe`, WinDivert file presence, argv count, and command.
-- `engine-launch.log` now includes launch preflight and a structured `argv_list` so paths with spaces and broken file arguments can be diagnosed.
-- Early `winws.exe` exit is handled as failure and does not leave the app marked as running.
-- CI split:
-  - Ubuntu checks cross-platform Rust crates and frontend.
-  - Windows checks full Rust workspace.
-  - Windows build produces installer artifact.
-- Node Tauri CLI is used in Actions to avoid slow `cargo install tauri-cli`.
+- User still reports `winws.exe` exits immediately with exit code `1`.
+- Latest investigation focuses on launch stability, not choosing a new DPI strategy.
+- Old installed build can produce misleading logs; fresh test logs must contain `app_version`, `build_id`, `preflight`, and `argv_list`.
+- Strategy status is unknown until validated end-to-end with a live `winws.exe` process and fresh `engine-launch.log`.
+- ALT6 is reported broken and must remain hidden/disabled from normal UI/candidates.
+- Snapshot/revert for DNS/proxy/firewall is still not implemented; v1.2 only stops the managed engine and cleans runtime state. The app must not claim full DNS/proxy restore.
 
-## Current Problems / Blockers
+## Current Stabilization Changes
 
-- User clarified after the hotfix discussion: Discord and YouTube are also not confirmed working now. Current blocker is all target services failing or unconfirmed: Discord, YouTube, Telegram, WhatsApp.
-- Latest user error: `winws.exe` starts and exits immediately with exit code `1`; reported launch path includes a user directory with a space, `C:\Users\John Smith\...`.
-- Current focus is root cause of `winws.exe` exit code `1`: `.bat -> argv` parsing, ShellExecute/runas quoting, preflight file validation, and launch logs.
-- Strategy status must be treated as unknown until validated end-to-end with a live `winws.exe` process and fresh `engine-launch.log`.
-- ALT6 is reported broken by the user and must stay hidden/disabled from normal UI/candidates.
-- User reported after `cc1b3ef`: nothing works, including previously working Discord/YouTube. Hotfix disables automatic profile-specific argv injection and returns to the known general strategy launch path.
-- User tested v1.2-test line: Telegram and WhatsApp do not work on any general strategy, including web and desktop apps.
-- Telegram/WhatsApp diagnostics/export remain, but runtime launch must not modify known-working Flowseal `general*.bat` argv until the change is isolated and tested.
-- If enable fails again, the next required input is the new `engine-launch.log` path shown by the app.
-- Telegram/WhatsApp strategy effectiveness is not confirmed stable yet. Current fix improves domain/ip coverage and diagnostics without changing working Discord/YouTube strategy behavior.
-- Snapshot/revert is still mostly architectural/mock for system DNS/proxy/firewall state.
+- Frontend startup separates critical state from optional diagnostics/update/log calls so one optional failure does not break the main toggle.
+- Build Windows workflow now includes `engine/**`, `profiles/**`, `strategies/**`, and manifest/hash tests.
+- Engine manifest hash consistency is tested without running binaries.
+- Tauri resources test verifies `engine`, `profiles`, and `strategies` are packaged.
+- Launch parser tests cover all visible strategies with a runtime path containing spaces.
+- Direct launch now unescapes CMD caret escaping, including `^!`, before building argv.
+- Launch logs include build provenance: app version and build id.
+- Build id includes `-dirty` when built from uncommitted local changes; final test installer must be rebuilt after the code commit.
+- Disable/Exit cleanup keeps enabled state if scoped cleanup fails, so the next action can retry cleanup instead of incorrectly enabling.
+- Tray Exit closes only after successful scoped cleanup verification; otherwise the app remains open.
+- Manual snapshot uses the app data root, not `current_dir()`/Program Files.
+- Recovery UI and commands now describe only the safe implemented part: stop managed engine and clean runtime state.
 
-## Verified
+## Verified In Current Block
 
-Local checks passed on 2026-06-26:
+Passed locally so far:
 
-- `cargo fmt --all --check`
-- `cargo test --workspace`
 - `corepack pnpm test`
-- `corepack pnpm --dir app/frontend build`
-- Tauri installer build from `app/tauri`
-- Test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
+- `cargo test --workspace`
 
-Local checks passed on 2026-06-29 for Telegram/WhatsApp diagnostics changes:
+Pending final run after all edits:
 
 - `cargo fmt --all --check`
 - `cargo test --workspace`
 - `corepack pnpm test`
 - `corepack pnpm --dir app/frontend build`
 - `cargo tauri build`
-- Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
-- Code commit `916ff52` pushed to `main`; CI #35 and Build Windows #28 completed successfully.
+- Copy fresh installer to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
+- Verify protected v1.0 artifacts unchanged
+- Commit, push, and wait for GitHub Actions CI + Build Windows
 
-Current block pending checks:
+## Manual Test Instructions After Fresh Build
 
-- Hotfix: automatic profile-specific Telegram/WhatsApp runtime filters disabled after user reported all services broken.
-- `Диагностировать Telegram/WhatsApp` action with DNS/TCP/TLS/runtime status.
-- Sanitized `diagnostic-export.txt` package for user reports.
-- Manual `Следующая стратегия` button for Telegram-only and WhatsApp-only selection.
+Install the new `ZapretManager v1.2-test.exe` over the old Program Files build. Do not use logs from the old installed app.
 
-Local checks passed on 2026-06-29 for profile-specific Telegram/WhatsApp block:
+After pressing Enable, if it fails, export diagnostics and send:
 
-- `cargo fmt --all --check`
-- `cargo test --workspace`
-- `corepack pnpm test`
-- `corepack pnpm --dir app/frontend build`
-- `cargo tauri build`
-- Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
-- Code commit `cc1b3ef` was pushed to `main`.
-- Actions status for `cc1b3ef` is not confirmed from this environment: GitHub API was unreachable from PowerShell, although `git push` succeeded.
+- the new `engine-launch.log`;
+- `diagnostic-export.txt`;
+- the visible build id shown in Diagnostics.
 
-Hotfix checks passed on 2026-06-29 after disabling automatic profile-specific argv injection:
-
-- `cargo fmt --all --check`
-- `cargo test --workspace`
-- `corepack pnpm test`
-- `corepack pnpm --dir app/frontend build`
-- `cargo tauri build`
-- Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
-
-Current strategy/live-diagnostics block pending checks:
-
-- User-facing strategies pruned to a small list; ALT6 hidden as reported broken.
-- All visible strategies are marked `unknown` or `experimental` until manually validated.
-- Diagnostic export is being expanded with engine process alive, pid, uptime, active strategy, selected profiles, launch log path, and endpoint checks.
-
-Launch-preflight checks passed on 2026-06-29:
-
-- Add path-with-spaces regression test for `C:\Users\John Smith\...` style runtime paths.
-- Add launch preflight for `winws.exe`, WinDivert files, `cygwin1.dll`, referenced hostlists/ipsets/fake payload files, and raw quote detection.
-- Add structured `argv_list` to `engine-launch.log` for exit code `1` debugging.
-- `cargo fmt --all --check`
-- `cargo test --workspace`
-- `corepack pnpm test`
-- `corepack pnpm --dir app/frontend build`
-- `cargo tauri build`
-- Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
-
-Strategy/live-diagnostics checks passed on 2026-06-29:
-
-- `cargo fmt --all --check`
-- `cargo test --workspace`
-- `corepack pnpm test`
-- `corepack pnpm --dir app/frontend build`
-- `cargo tauri build`
-- Fresh test installer copied to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
-- Code commit `e03322b` pushed to `main`; CI and Build Windows completed successfully.
-
-GitHub Actions:
-
-- Docs/context commit `c93d194`: CI success.
-- Launch preflight commit `916ff52`: CI success and Build Windows success.
-- Latest code/build commit `62c15aa`: CI success and Build Windows success.
-- Telegram/WhatsApp code commit `bc0f094` was pushed to `main`.
-- Actions status for `bc0f094` is not confirmed from this environment: `gh` is not authenticated and the public GitHub API was unreachable from the local sandbox. Re-check Actions from GitHub UI or an authenticated coordinator thread.
-
-## Remaining Before Stable v1.2
-
-- User manual test on latest test installer.
-- Confirm Disable, Emergency Disable, tray Exit, and app shutdown leave no `winws.exe` process.
-- Confirm VPN does not complain after full tray Exit.
-- Confirm `engine-launch.log` gives actionable detail if `winws.exe` exits immediately.
-- Test Telegram only, WhatsApp only, then both together with Discord/YouTube.
-- First restore and confirm a minimal working mode for Discord/YouTube, then continue Telegram/WhatsApp.
-- Prune or promote strategies only after diagnostics confirms real behavior.
-- Create signed release only after user confirms the test build works.
+Fresh logs must include `app_version`, `build_id`, `preflight_ok`, `preflight_report`, and `argv_list`.
 
 ## Security Rules
 
 - Never commit secrets, GitHub tokens, `.env`, updater private keys, cookies, or private logs.
 - `.tauri-updater/` and signing keys stay local/secret only.
 - Do not add or replace engine binaries without trusted source review and `engine/manifest.json` hash updates.
-- Do not run third-party scripts or binaries unless they are reviewed and required for the task.
+- Do not run third-party scripts or binaries unless reviewed and required.
 - Do not log user traffic, private messages, cookies, tokens, passwords, or personal data.
 - External engine files are untrusted until manifest/source/hash verification passes.
 
 ## Backlog
 
-Future feature after lifecycle stabilization:
-
-- Automatic strategy selection by profile health-check.
-- Start with manual `Следующая стратегия` and `Подобрать автоматически`.
+- Automatic strategy selection by profile health-check after lifecycle stabilization.
+- Start with manual `Следующая стратегия` and later `Подобрать автоматически`.
 - Health-checks only use DNS resolve, TCP connect, and HTTPS connect.
 - No user traffic inspection.
 - No infinite switching; use cooldown and attempt limits.
-- Do not break working profiles while trying to fix another profile.

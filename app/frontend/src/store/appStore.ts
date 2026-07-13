@@ -53,6 +53,17 @@ const setLoading = (key: string, value: boolean) => {
   emit();
 };
 
+type StartupCommands = Pick<
+  typeof tauriCommands,
+  "getAppStatus" | "listProfiles" | "getSettings" | "runDiagnostics" | "checkStrategyUpdates" | "readUserLogs"
+>;
+
+export interface StartupStateResult {
+  critical: Pick<AppState, "status" | "profiles" | "selectedProfiles" | "settings">;
+  optional: Partial<Pick<AppState, "diagnostics" | "strategyUpdateStatus" | "userLog">>;
+  optionalErrors: string[];
+}
+
 async function runAction<T>(key: string, action: () => Promise<T>): Promise<T | null> {
   setLoading(key, true);
   setState({ error: null });
@@ -97,26 +108,58 @@ function defaultSettings(): AppSettings {
   };
 }
 
+async function optionalStartup<T>(
+  label: string,
+  action: () => Promise<T>,
+): Promise<{ value?: T; error?: string }> {
+  try {
+    return { value: await action() };
+  } catch (error) {
+    return { error: `${label}: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+export async function loadStartupState(commands: StartupCommands = tauriCommands): Promise<StartupStateResult> {
+  const [status, profiles, settings] = await Promise.all([
+    commands.getAppStatus(),
+    commands.listProfiles(),
+    commands.getSettings(),
+  ]);
+
+  const [diagnostics, strategyUpdateStatus, userLog] = await Promise.all([
+    optionalStartup("diagnostics", commands.runDiagnostics),
+    optionalStartup("strategy updates", commands.checkStrategyUpdates),
+    optionalStartup("user log", commands.readUserLogs),
+  ]);
+
+  const optionalErrors = [diagnostics.error, strategyUpdateStatus.error, userLog.error].filter(Boolean) as string[];
+
+  const optional: StartupStateResult["optional"] = {};
+  if (diagnostics.value) optional.diagnostics = diagnostics.value.items;
+  if (strategyUpdateStatus.value) optional.strategyUpdateStatus = strategyUpdateStatus.value;
+  if (userLog.value) optional.userLog = userLog.value;
+
+  return {
+    critical: {
+      status,
+      profiles,
+      selectedProfiles: status.enabled_profiles,
+      settings,
+    },
+    optional,
+    optionalErrors,
+  };
+}
+
 export const appActions = {
   setPage: (selectedPage: PageId) => setState({ selectedPage }),
   initialize: async () => {
     await runAction("initialize", async () => {
-      const [status, profiles, diagnostics, strategyUpdateStatus, userLog, settings] = await Promise.all([
-        tauriCommands.getAppStatus(),
-        tauriCommands.listProfiles(),
-        tauriCommands.runDiagnostics(),
-        tauriCommands.checkStrategyUpdates(),
-        tauriCommands.readUserLogs(),
-        tauriCommands.getSettings(),
-      ]);
+      const startup = await loadStartupState();
       setState({
-        status,
-        profiles,
-        selectedProfiles: status.enabled_profiles,
-        diagnostics: diagnostics.items,
-        strategyUpdateStatus,
-        userLog,
-        settings,
+        ...startup.critical,
+        ...startup.optional,
+        error: startup.optionalErrors.length ? `Часть данных не загрузилась: ${startup.optionalErrors.join("; ")}` : null,
       });
     });
   },
