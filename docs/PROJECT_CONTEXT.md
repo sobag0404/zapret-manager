@@ -36,6 +36,9 @@ Confirmed local install mismatch:
 - `229b440 cleanup: keep retry state on failure`
 - `afaac6d diagnostics: report unconfirmed checks honestly`
 - `d27968a profiles: mark modes experimental`
+- `bf6dce6 ci: preserve engine resource hashes`
+- `3ef41e5 ci: preserve strategy resource hashes`
+- `c2399fc ci: rebuild on attributes changes`
 
 ## Current Blockers
 
@@ -78,9 +81,10 @@ Passed locally so far:
 - Fresh `target/release/bundle/nsis/ZapretManager v1.2-test.exe` was rebuilt after the latest code commit.
 - Protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` were checked unchanged.
 
-Pending:
+GitHub Actions:
 
-- Confirm GitHub Actions CI + Build Windows pass after the engine resource EOL fix.
+- `c2399fc`: CI #43 passed.
+- `c2399fc`: Build Windows #33 passed and uploaded the Windows artifact.
 
 ## Manual Test Instructions After Fresh Build
 
