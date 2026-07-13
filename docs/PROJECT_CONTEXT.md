@@ -33,6 +33,8 @@ Confirmed local install mismatch:
 - `7820515 engine: disable messaging argv injection`
 - `cc1b3ef engine: add messaging profile diagnostics`
 - `bc0f094 engine: improve telegram whatsapp diagnostics`
+- `229b440 cleanup: keep retry state on failure`
+- `afaac6d diagnostics: report unconfirmed checks honestly`
 
 ## Current Blockers
 
@@ -65,19 +67,17 @@ Confirmed local install mismatch:
 
 Passed locally so far:
 
-- `corepack pnpm test`
-- `cargo test --workspace`
-
-Pending final run after all edits:
-
 - `cargo fmt --all --check`
 - `cargo test --workspace`
 - `corepack pnpm test`
 - `corepack pnpm --dir app/frontend build`
 - `cargo tauri build`
-- Copy fresh installer to `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
-- Verify protected v1.0 artifacts unchanged
-- Commit, push, and wait for GitHub Actions CI + Build Windows
+- Fresh `target/release/bundle/nsis/ZapretManager v1.2-test.exe` was rebuilt after the latest code commit.
+- Protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` were checked unchanged.
+
+Pending:
+
+- Push commits and wait for GitHub Actions CI + Build Windows.
 
 ## Manual Test Instructions After Fresh Build
 
