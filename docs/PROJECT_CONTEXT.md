@@ -52,7 +52,7 @@ Confirmed local install mismatch:
 - Frontend startup separates critical state from optional diagnostics/update/log calls so one optional failure does not break the main toggle.
 - Build Windows workflow now includes `engine/**`, `profiles/**`, `strategies/**`, and manifest/hash tests.
 - Engine manifest hash consistency is tested without running binaries.
-- Hashed `engine/local/**` resources are stored as exact raw bytes via `.gitattributes`; Git must not convert CRLF/LF and invalidate manifest hashes across operating systems.
+- Hashed `engine/local/**` and strategy payloads are stored as exact raw bytes via `.gitattributes`; Git must not convert CRLF/LF and invalidate manifests across operating systems.
 - Tauri resources test verifies `engine`, `profiles`, and `strategies` are packaged.
 - Launch parser tests cover all visible strategies with a runtime path containing spaces.
 - Direct launch now unescapes CMD caret escaping, including `^!`, before building argv.

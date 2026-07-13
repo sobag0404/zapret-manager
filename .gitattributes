@@ -1,2 +1,4 @@
 # Engine manifest hashes exact file bytes. Keep packaged resources unchanged on every OS.
 engine/local/** -text whitespace=cr-at-eol
+strategies/stable/** -text whitespace=cr-at-eol
+strategies/experimental/** -text whitespace=cr-at-eol
