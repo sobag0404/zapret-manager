@@ -19,6 +19,7 @@ on:
       - "package.json"
       - "pnpm-lock.yaml"
       - "service/**"
+      - ".gitattributes"
       - ".github/workflows/build-windows.yml"
 
 permissions:
