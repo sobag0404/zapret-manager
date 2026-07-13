@@ -62,6 +62,7 @@ Confirmed local install mismatch:
 - Manual snapshot uses the app data root, not `current_dir()`/Program Files.
 - Recovery UI and commands now describe only the safe implemented part: stop managed engine and clean runtime state.
 - Diagnostics now marks Windows service checks as skipped, reports local backend separately, and treats DNS/Internet/service availability as unconfirmed until explicit health-checks run.
+- User-facing profiles Discord/YouTube/Telegram/WhatsApp/Common are marked `experimental` until manual service access is confirmed.
 
 ## Verified In Current Block
 

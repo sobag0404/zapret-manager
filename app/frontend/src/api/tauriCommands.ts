@@ -112,7 +112,7 @@ function profile(id: string, name: string, description: string, risk_level: Prof
     id,
     name,
     description,
-    status: "stable",
+    status: "experimental",
     version: "1.0.0",
     targets: ["desktop_app", "web"],
     health_checks: ["dns", "tcp", "https"],

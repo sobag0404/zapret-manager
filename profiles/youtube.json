@@ -2,7 +2,7 @@
   "id": "youtube",
   "name": "YouTube",
   "description": "YouTube profile",
-  "status": "stable",
+  "status": "experimental",
   "version": "1.0.0",
   "targets": ["web", "video"],
   "health_checks": ["dns", "tcp", "https"],

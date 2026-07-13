@@ -2,7 +2,7 @@
   "id": "discord",
   "name": "Discord",
   "description": "Discord profile",
-  "status": "stable",
+  "status": "experimental",
   "version": "1.0.0",
   "targets": ["desktop_app", "web", "voice"],
   "health_checks": ["dns", "tcp", "https"],

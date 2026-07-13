@@ -14,7 +14,7 @@ const profiles: Profile[] = [
     id: "discord",
     name: "Discord",
     description: "Discord",
-    status: "stable",
+    status: "experimental",
     version: "1.0.0",
     targets: ["web"],
     health_checks: ["dns"],
