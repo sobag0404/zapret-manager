@@ -9,7 +9,7 @@ pub struct ServiceState {
 
 pub fn query_service_state() -> Result<ServiceState> {
     Ok(ServiceState {
-        installed: true,
+        installed: false,
         running: false,
         mode: "mock".to_string(),
     })

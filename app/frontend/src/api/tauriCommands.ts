@@ -140,11 +140,19 @@ const addLog = (message: string) => {
 };
 
 function diag(id: string, title: string, status: DiagnosticStatus, action: string): DiagnosticItem {
+  const problem =
+    status === "ok"
+      ? null
+      : status === "skipped"
+        ? `${title}: проверка пропущена.`
+        : status === "warning"
+          ? `${title}: требуется внимание.`
+          : `${title}: ошибка.`;
   return {
     id,
     title,
     status,
-    problem: status === "ok" ? null : `Проблема: ${title}.`,
+    problem,
     action,
   };
 }
@@ -152,19 +160,20 @@ function diag(id: string, title: string, status: DiagnosticStatus, action: strin
 function mockDiagnostics(): DiagnosticReport {
   const items: DiagnosticItem[] = [
     diag("admin", "Права администратора", "warning", "Для запуска WinDivert нажмите правой кнопкой по приложению и выберите запуск от администратора."),
-    diag("service_installed", "Служба установлена", "ok", "Действий не требуется."),
-    diag("service_running", "Служба запущена", "ok", "Действий не требуется."),
+    diag("service_installed", "Windows-служба", "skipped", "Отдельная Windows-служба в v1.2 не установлена. Управление engine выполняет локальный backend приложения."),
+    diag("service_running", "Windows-служба запущена", "skipped", "Проверка Windows-службы пропущена: в текущей сборке используется локальный backend."),
+    diag("local_backend", "Локальный backend", "ok", "Локальный backend отвечает внутри приложения."),
     diag("engine_found", "Engine найден", "ok", "Engine manifest найден."),
     diag("engine_hash", "Engine hash совпадает", "ok", "Manifest/hash проверены."),
     diag("driver", "Драйвер доступен", "warning", "WinDivert проверяется при запуске от администратора."),
     diag("profile_valid", "Профили валидны", "ok", "Действий не требуется."),
     diag("strategy_valid", "Стратегии валидны", "ok", "Действий не требуется."),
-    diag("dns", "DNS работает", "ok", "Действий не требуется."),
-    diag("internet", "Интернет доступен", "ok", "Действий не требуется."),
-    diag("discord", "Discord доступен", "ok", "Действий не требуется."),
-    diag("youtube", "YouTube доступен", "ok", "Действий не требуется."),
-    diag("telegram", "Telegram доступен", "ok", "Действий не требуется."),
-    diag("whatsapp", "WhatsApp доступен", "ok", "Действий не требуется."),
+    diag("dns", "DNS проверка", "skipped", "DNS не подтверждён общей диагностикой. Нажмите DNS, чтобы выполнить фактическую проверку резолвинга."),
+    diag("internet", "Интернет проверка", "skipped", "Доступность интернета не подтверждена общей диагностикой. Запустите проверку доступности."),
+    diag("discord", "Discord доступность", "skipped", "Включённый engine не подтверждает доступность Discord. Запустите проверку доступности."),
+    diag("youtube", "YouTube доступность", "skipped", "Включённый engine не подтверждает доступность YouTube. Запустите проверку доступности."),
+    diag("telegram", "Telegram доступность", "skipped", "Доступность Telegram не подтверждена. Запустите Telegram/WhatsApp диагностику."),
+    diag("whatsapp", "WhatsApp доступность", "skipped", "Доступность WhatsApp не подтверждена. Запустите Telegram/WhatsApp диагностику."),
     diag("vpn", "Конфликт с VPN", "warning", "Если VPN включён, используйте разрешённый режим совместимости в настройках."),
     diag("proxy", "Конфликт с proxy не найден", "ok", "Proxy не менялся."),
     diag("antivirus", "Антивирус", "skipped", "Автоматически не опрашивается. Если запуск блокируется, добавьте папку приложения в исключения."),

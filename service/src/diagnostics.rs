@@ -15,23 +15,33 @@ pub fn run_diagnostics(root: &Path, engine_running: bool) -> Result<DiagnosticRe
         ),
         item(
             "service_installed",
-            "Служба установлена",
+            "Windows-служба",
             if service_state.installed {
                 DiagnosticStatus::Ok
             } else {
-                DiagnosticStatus::Error
+                DiagnosticStatus::Skipped
             },
-            "Переустановите службу в разделе Восстановление.",
+            "Отдельная Windows-служба в v1.2 не установлена; это не подтверждает и не опровергает доступность сервисов.",
         ),
         item(
             "service_running",
-            "Служба запущена",
-            if service_state.running || !engine_running {
+            "Windows-служба запущена",
+            if service_state.running {
                 DiagnosticStatus::Ok
             } else {
-                DiagnosticStatus::Error
+                DiagnosticStatus::Skipped
             },
-            "Перезапустите службу.",
+            "Проверка службы пропущена: mock service crate не должен выдавать службу за запущенную.",
+        ),
+        item(
+            "local_backend",
+            "Локальный backend",
+            if engine_running {
+                DiagnosticStatus::Warning
+            } else {
+                DiagnosticStatus::Ok
+            },
+            "Локальный backend отвечает. Доступность сервисов проверяется отдельными health-checks.",
         ),
         item(
             "engine_found",

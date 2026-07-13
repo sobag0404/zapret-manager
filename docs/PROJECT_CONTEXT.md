@@ -42,6 +42,7 @@ Confirmed local install mismatch:
 - Strategy status is unknown until validated end-to-end with a live `winws.exe` process and fresh `engine-launch.log`.
 - ALT6 is reported broken and must remain hidden/disabled from normal UI/candidates.
 - Snapshot/revert for DNS/proxy/firewall is still not implemented; v1.2 only stops the managed engine and cleans runtime state. The app must not claim full DNS/proxy restore.
+- General Diagnostics must not claim Windows service, DNS, Internet, Discord, YouTube, Telegram, or WhatsApp are OK without a factual check. Local backend health is separate from Windows service health.
 
 ## Current Stabilization Changes
 
@@ -58,6 +59,7 @@ Confirmed local install mismatch:
 - Tray Exit closes only after successful scoped cleanup verification; otherwise the app remains open.
 - Manual snapshot uses the app data root, not `current_dir()`/Program Files.
 - Recovery UI and commands now describe only the safe implemented part: stop managed engine and clean runtime state.
+- Diagnostics now marks Windows service checks as skipped, reports local backend separately, and treats DNS/Internet/service availability as unconfirmed until explicit health-checks run.
 
 ## Verified In Current Block
 

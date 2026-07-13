@@ -339,15 +339,21 @@ impl ServiceClient {
             ),
             diag(
                 "service_installed",
-                "Служба установлена",
-                DiagnosticStatus::Ok,
-                "Локальный backend доступен. Engine запускается только по кнопке Включить.",
+                "Windows-служба",
+                DiagnosticStatus::Skipped,
+                "Отдельная Windows-служба в v1.2 не установлена. Управление engine выполняет локальный backend приложения.",
             ),
             diag(
                 "service_running",
-                "Служба запущена",
+                "Windows-служба запущена",
+                DiagnosticStatus::Skipped,
+                "Проверка Windows-службы пропущена: в текущей сборке используется локальный backend, а не отдельная служба.",
+            ),
+            diag(
+                "local_backend",
+                "Локальный backend",
                 DiagnosticStatus::Ok,
-                "Локальный backend отвечает.",
+                "Локальный backend отвечает внутри приложения.",
             ),
             diag(
                 "engine_found",
@@ -389,39 +395,39 @@ impl ServiceClient {
             ),
             diag(
                 "dns",
-                "DNS работает",
-                DiagnosticStatus::Ok,
-                "DNS не меняется приложением. Для браузера рекомендуется Secure DNS.",
+                "DNS проверка",
+                DiagnosticStatus::Skipped,
+                "DNS не подтверждён общей диагностикой. Нажмите DNS, чтобы выполнить фактическую проверку резолвинга.",
             ),
             diag(
                 "internet",
-                "Интернет доступен",
-                DiagnosticStatus::Ok,
-                "Базовая проверка доступности сети пройдёт после включения.",
+                "Интернет проверка",
+                DiagnosticStatus::Skipped,
+                "Доступность интернета не подтверждена общей диагностикой. Запустите проверку доступности.",
             ),
             diag(
                 "discord",
-                "Discord доступен",
-                if self.enabled { DiagnosticStatus::Ok } else { DiagnosticStatus::Skipped },
-                "После включения проверьте Discord в приложении и браузере.",
+                "Discord доступность",
+                if self.enabled { DiagnosticStatus::Warning } else { DiagnosticStatus::Skipped },
+                "Включённый engine не подтверждает доступность Discord. Запустите проверку доступности и проверьте приложение/браузер.",
             ),
             diag(
                 "youtube",
-                "YouTube доступен",
-                if self.enabled { DiagnosticStatus::Ok } else { DiagnosticStatus::Skipped },
-                "После включения проверьте YouTube в браузере.",
+                "YouTube доступность",
+                if self.enabled { DiagnosticStatus::Warning } else { DiagnosticStatus::Skipped },
+                "Включённый engine не подтверждает доступность YouTube. Запустите проверку доступности и проверьте браузер.",
             ),
             diag(
                 "telegram",
-                "Telegram доступен",
+                "Telegram доступность",
                 if self.enabled { DiagnosticStatus::Warning } else { DiagnosticStatus::Skipped },
-                "Telegram зависит от провайдера; web.telegram.org добавлен в пользовательский hostlist.",
+                "Доступность Telegram не подтверждена. Запустите Telegram/WhatsApp диагностику и проверьте приложение/браузер.",
             ),
             diag(
                 "whatsapp",
-                "WhatsApp доступен",
+                "WhatsApp доступность",
                 if self.enabled { DiagnosticStatus::Warning } else { DiagnosticStatus::Skipped },
-                "WhatsApp Web и desktop добавлены в общий hostlist. Если включён VPN, он может перехватывать трафик раньше engine.",
+                "Доступность WhatsApp не подтверждена. Запустите Telegram/WhatsApp диагностику и проверьте приложение/браузер.",
             ),
             DiagnosticItem {
                 id: "vpn".to_string(),
@@ -2099,6 +2105,7 @@ mod tests {
     };
     use std::fs;
     use std::path::{Path, PathBuf};
+    use zapret_manager_core::DiagnosticStatus;
 
     #[test]
     fn extracts_direct_winws_command_from_strategy() {
@@ -2282,6 +2289,36 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
     }
 
     #[test]
+    fn diagnostics_do_not_claim_unchecked_service_or_endpoint_access() {
+        let content_root = test_runtime_dir("diagnostics content");
+        let data_root = test_runtime_dir("diagnostics data");
+        fs::create_dir_all(&content_root).expect("content");
+        fs::create_dir_all(&data_root).expect("data");
+        let mut client = ServiceClient::new(content_root.clone(), data_root.clone());
+        client.enabled = true;
+
+        let report = client.diagnostics();
+        let by_id = |id: &str| {
+            report
+                .items
+                .iter()
+                .find(|item| item.id == id)
+                .unwrap_or_else(|| panic!("missing diagnostic item {id}"))
+        };
+
+        assert_eq!(by_id("service_installed").status, DiagnosticStatus::Skipped);
+        assert_eq!(by_id("service_running").status, DiagnosticStatus::Skipped);
+        assert_eq!(by_id("local_backend").status, DiagnosticStatus::Ok);
+        assert_eq!(by_id("dns").status, DiagnosticStatus::Skipped);
+        assert_eq!(by_id("internet").status, DiagnosticStatus::Skipped);
+        assert_ne!(by_id("discord").status, DiagnosticStatus::Ok);
+        assert_ne!(by_id("youtube").status, DiagnosticStatus::Ok);
+
+        let _ = fs::remove_dir_all(content_root);
+        let _ = fs::remove_dir_all(data_root);
+    }
+
+    #[test]
     fn powershell_quote_escapes_single_quotes() {
         assert_eq!(powershell_single_quote("C:\\A'B"), "C:\\A''B");
     }
@@ -2355,7 +2392,9 @@ fn diag(id: &str, title: &str, status: DiagnosticStatus, action: &str) -> Diagno
         status,
         problem: match status {
             DiagnosticStatus::Ok => None,
-            _ => Some(format!("Проблема: {title}.")),
+            DiagnosticStatus::Warning => Some(format!("{title}: требуется внимание.")),
+            DiagnosticStatus::Error => Some(format!("{title}: ошибка.")),
+            DiagnosticStatus::Skipped => Some(format!("{title}: проверка пропущена.")),
         },
         action: Some(action.to_string()),
     }
