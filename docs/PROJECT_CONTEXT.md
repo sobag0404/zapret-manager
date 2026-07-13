@@ -35,6 +35,7 @@ Confirmed local install mismatch:
 - `bc0f094 engine: improve telegram whatsapp diagnostics`
 - `229b440 cleanup: keep retry state on failure`
 - `afaac6d diagnostics: report unconfirmed checks honestly`
+- `d27968a profiles: mark modes experimental`
 
 ## Current Blockers
 
