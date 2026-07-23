@@ -75,6 +75,7 @@ $runner = @"
 `$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-address=127.0.0.1 --remote-debugging-port=$CdpPort"
 `$env:WEBVIEW2_USER_DATA_FOLDER = '$(Escape-SingleQuotedPowerShell $userDataFolder)'
 `$env:ZAPRET_MANAGER_REMOTE_TEST_ID = '$runId'
+`$env:ZAPRET_MANAGER_REMOTE_TEST_CDP_PORT = '$CdpPort'
 `$process = Start-Process -FilePath '$(Escape-SingleQuotedPowerShell $AppPath)' -WorkingDirectory '$(Escape-SingleQuotedPowerShell $workDir)' -PassThru
 `$state = [pscustomobject]@{
   run_id = '$runId'
@@ -82,6 +83,7 @@ $runner = @"
   app_path = '$(Escape-SingleQuotedPowerShell $AppPath)'
   app_pid = `$process.Id
   cdp_endpoint = 'http://127.0.0.1:$CdpPort'
+  remote_test_cdp_port = '$CdpPort'
   webview2_user_data_folder = '$(Escape-SingleQuotedPowerShell $userDataFolder)'
   state_path = '$(Escape-SingleQuotedPowerShell $statePath)'
 }

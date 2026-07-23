@@ -5,14 +5,14 @@ This harness is for a separate Windows 10 test PC accessed over SSH/Tailscale. I
 ## What It Does
 
 - Starts the installed Zapret Manager GUI in an interactive Windows session.
-- Enables WebView2 CDP only for that test process using environment variables.
+- Enables WebView2 CDP only for that test process using an explicit Zapret Manager test env var and WebView2 environment fallback.
 - Binds CDP to `127.0.0.1` only.
 - Lets the coordinator connect Playwright through an SSH local port-forward.
 - Stops only the Zapret Manager process launched by the harness.
 - Verifies that no ZapretManager-owned `winws.exe` remains under the local app data runtime root.
 - Exports logs and launch diagnostics into a local test export folder.
 
-WebView2 supports `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<port>`. Playwright connects through CDP with `chromium.connectOverCDP(...)`. The harness uses that only for remote testing.
+WebView2 supports `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<port>` and programmatic `AdditionalBrowserArguments`. Zapret Manager uses the programmatic path only when `ZAPRET_MANAGER_REMOTE_TEST_CDP_PORT` is set to a valid port. Production starts without CDP when that env var is absent. Playwright connects through CDP with `chromium.connectOverCDP(...)`.
 
 References:
 

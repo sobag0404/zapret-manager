@@ -9,10 +9,14 @@ use commands::{
 };
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::utils::config::Config;
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 use zapret_manager_core::RuntimeStatus;
 
 fn main() {
+    let mut context = tauri::generate_context!();
+    apply_remote_test_cdp_args(context.config_mut());
+
     tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
@@ -47,13 +51,47 @@ fn main() {
             get_settings,
             save_settings
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("failed to build Zapret Manager")
         .run(|_app, event| {
             if matches!(event, RunEvent::ExitRequested { .. }) {
                 cleanup_before_forced_exit();
             }
         });
+}
+
+fn apply_remote_test_cdp_args(config: &mut Config) {
+    let Some(args) = remote_test_cdp_args_from_env() else {
+        return;
+    };
+
+    for window in &mut config.app.windows {
+        window.additional_browser_args = Some(args.clone());
+    }
+}
+
+fn remote_test_cdp_args_from_env() -> Option<String> {
+    let value = std::env::var("ZAPRET_MANAGER_REMOTE_TEST_CDP_PORT").ok()?;
+    remote_test_cdp_args(&value)
+}
+
+fn remote_test_cdp_args(value: &str) -> Option<String> {
+    let port = parse_remote_test_cdp_port(value)?;
+    Some(format!(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-address=127.0.0.1 --remote-debugging-port={port}"
+    ))
+}
+
+fn parse_remote_test_cdp_port(value: &str) -> Option<u16> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let port = value.parse::<u16>().ok()?;
+    if (1024..=65535).contains(&port) {
+        Some(port)
+    } else {
+        None
+    }
 }
 
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -183,7 +221,10 @@ fn show_main_window(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{exit_cleanup_decision, ExitCleanupDecision};
+    use super::{
+        exit_cleanup_decision, parse_remote_test_cdp_port, remote_test_cdp_args,
+        ExitCleanupDecision,
+    };
 
     #[test]
     fn exit_cleanup_only_exits_after_successful_cleanup() {
@@ -192,5 +233,23 @@ mod tests {
             exit_cleanup_decision(false),
             ExitCleanupDecision::KeepRunning
         );
+    }
+
+    #[test]
+    fn remote_test_cdp_args_are_loopback_only_and_env_gated() {
+        assert_eq!(parse_remote_test_cdp_port("9223"), Some(9223));
+        assert_eq!(parse_remote_test_cdp_port("1023"), None);
+        assert_eq!(parse_remote_test_cdp_port("65536"), None);
+        assert_eq!(parse_remote_test_cdp_port(" 9223"), None);
+        assert_eq!(
+            parse_remote_test_cdp_port("9223 --remote-allow-origins=*"),
+            None
+        );
+
+        let args = remote_test_cdp_args("9223").expect("args");
+        assert!(args.contains("--remote-debugging-address=127.0.0.1"));
+        assert!(args.contains("--remote-debugging-port=9223"));
+        assert!(args.contains("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"));
+        assert!(!args.contains("0.0.0.0"));
     }
 }
