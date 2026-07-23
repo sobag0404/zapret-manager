@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-13
+Last updated: 2026-07-23
 
 ## Current Goal
 
@@ -39,6 +39,7 @@ Confirmed local install mismatch:
 - `bf6dce6 ci: preserve engine resource hashes`
 - `3ef41e5 ci: preserve strategy resource hashes`
 - `c2399fc ci: rebuild on attributes changes`
+- `a30f562 docs: update project context`
 
 ## Current Blockers
 
@@ -68,6 +69,7 @@ Confirmed local install mismatch:
 - Recovery UI and commands now describe only the safe implemented part: stop managed engine and clean runtime state.
 - Diagnostics now marks Windows service checks as skipped, reports local backend separately, and treats DNS/Internet/service availability as unconfirmed until explicit health-checks run.
 - User-facing profiles Discord/YouTube/Telegram/WhatsApp/Common are marked `experimental` until manual service access is confirmed.
+- Remote testing harness is being added for a separate Windows 10 PC over SSH/Tailscale. It launches the installed GUI with WebView2 CDP on loopback only and does not start the engine by itself.
 
 ## Verified In Current Block
 
@@ -97,6 +99,10 @@ After pressing Enable, if it fails, export diagnostics and send:
 - the visible build id shown in Diagnostics.
 
 Fresh logs must include `app_version`, `build_id`, `preflight_ok`, `preflight_report`, and `argv_list`.
+
+## Remote Test Harness
+
+Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproducible tests on a separate Windows 10 PC. CDP must stay bound to `127.0.0.1` and be accessed through an SSH tunnel. The coordinator performs real engine/access tests on the remote PC; this repo only provides safe tooling and diagnostics.
 
 ## Security Rules
 
