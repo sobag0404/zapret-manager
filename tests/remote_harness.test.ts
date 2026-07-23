@@ -25,6 +25,8 @@ describe("remote test harness", () => {
     expect(startScript).toContain("--remote-debugging-address=127.0.0.1");
     expect(startScript).toContain("--remote-debugging-port=$CdpPort");
     expect(startScript).toContain("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS");
+    expect(startScript).toContain("[Security.Principal.WindowsIdentity]::GetCurrent()");
+    expect(startScript).not.toContain("$env:USERDOMAIN\\$env:USERNAME");
     expect(startScript).toContain("ValidateOnly");
   });
 

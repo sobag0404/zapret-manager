@@ -32,6 +32,14 @@ function Assert-LoopbackOnly([int]$Port) {
   }
 }
 
+function Get-InteractiveTaskUserId {
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  if (-not $identity -or [string]::IsNullOrWhiteSpace($identity.Name)) {
+    throw "Unable to resolve current Windows identity for scheduled task principal."
+  }
+  return $identity.Name
+}
+
 if (-not (Test-Path -LiteralPath $AppPath -PathType Leaf)) {
   throw "Zapret Manager executable not found: $AppPath"
 }
@@ -86,7 +94,7 @@ if ($LaunchMode -eq "Direct") {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runnerPath
 } else {
   $taskName = "ZapretManagerRemoteTest-$runId"
-  $userId = if ($env:USERDOMAIN) { "$env:USERDOMAIN\$env:USERNAME" } else { $env:USERNAME }
+  $userId = Get-InteractiveTaskUserId
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$runnerPath`""
   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1)
   $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Highest
