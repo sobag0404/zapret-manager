@@ -1,5 +1,4 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 
 export type RuntimeStatus = "disabled" | "starting" | "running" | "stopping" | "error";
 export type ProfileStatus = "stable" | "experimental";
@@ -298,7 +297,6 @@ export const tauriCommands = {
     }
   },
   installAppUpdate: async (): Promise<AppUpdateStatus> => {
-    if (!invoke()) return checkAppUpdateFallback();
     if (!pendingAppUpdate) {
       return {
         state: "error",
@@ -306,24 +304,13 @@ export const tauriCommands = {
         message: "Сначала проверьте обновления приложения.",
       };
     }
-    try {
-      await tauriCommands.disableAll();
-      await pendingAppUpdate.downloadAndInstall();
-      await relaunch();
-      return {
-        state: "installing",
-        current_version: pendingAppUpdate.currentVersion,
-        available_version: pendingAppUpdate.version,
-        message: "Обновление установлено. Приложение перезапускается.",
-      };
-    } catch (error) {
-      return {
-        state: "error",
-        current_version: pendingAppUpdate.currentVersion,
-        available_version: pendingAppUpdate.version,
-        message: error instanceof Error ? error.message : String(error),
-      };
-    }
+    return {
+      state: "error",
+      current_version: pendingAppUpdate.currentVersion,
+      available_version: pendingAppUpdate.version,
+      message:
+        "Автоустановка временно отключена: сначала должен пройти безопасный cleanup. Скачайте новую версию вручную из релиза.",
+    };
   },
   repairDriver: () => call<string>("repair_driver", undefined, () => "WinDivert проверяется только при запуске engine."),
   repairService: () => call<string>("repair_service", undefined, () => "Локальный backend доступен; Windows-служба в v1.2 не переустанавливается."),

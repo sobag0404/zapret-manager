@@ -13,12 +13,32 @@ use tauri::utils::config::Config;
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 use zapret_manager_core::RuntimeStatus;
 
+#[cfg(windows)]
+use std::ffi::OsStr;
+#[cfg(windows)]
+use std::os::windows::ffi::OsStrExt;
+#[cfg(windows)]
+use std::sync::OnceLock;
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS};
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::CreateMutexW;
+
+#[cfg(windows)]
+static APP_INSTANCE_MUTEX: OnceLock<isize> = OnceLock::new();
+
 fn main() {
+    if let Some(exit_code) = windivert_cleanup_cli_exit_code() {
+        std::process::exit(exit_code);
+    }
+    if !ensure_single_instance() {
+        return;
+    }
+
     let mut context = tauri::generate_context!();
     apply_remote_test_cdp_args(context.config_mut());
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
@@ -53,11 +73,60 @@ fn main() {
         ])
         .build(context)
         .expect("failed to build Zapret Manager")
-        .run(|_app, event| {
-            if matches!(event, RunEvent::ExitRequested { .. }) {
-                cleanup_before_forced_exit();
+        .run(|app, event| {
+            if let RunEvent::ExitRequested { api, .. } = event {
+                if !cleanup_before_forced_exit(app) {
+                    api.prevent_exit();
+                }
             }
         });
+}
+
+#[cfg(windows)]
+fn ensure_single_instance() -> bool {
+    let name = wide_null("Global\\ZapretManager.AppInstance");
+    let handle = unsafe { CreateMutexW(std::ptr::null(), 1, name.as_ptr()) };
+    if handle.is_null() {
+        return false;
+    }
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        unsafe {
+            CloseHandle(handle);
+        }
+        return false;
+    }
+    if APP_INSTANCE_MUTEX.set(handle as isize).is_err() {
+        unsafe {
+            CloseHandle(handle);
+        }
+    }
+    true
+}
+
+#[cfg(not(windows))]
+fn ensure_single_instance() -> bool {
+    true
+}
+
+#[cfg(windows)]
+fn wide_null(value: &str) -> Vec<u16> {
+    OsStr::new(value)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+fn windivert_cleanup_cli_exit_code() -> Option<i32> {
+    let mut args = std::env::args_os();
+    let _exe = args.next();
+    let flag = args.next()?;
+    if flag != service_client::WINDIVERT_CLEANUP_ARG {
+        return None;
+    }
+    let runtime_root = args.next()?;
+    Some(service_client::run_windivert_cleanup_cli(
+        std::path::PathBuf::from(runtime_root),
+    ))
 }
 
 fn apply_remote_test_cdp_args(config: &mut Config) {
@@ -175,10 +244,8 @@ fn cleanup_before_user_exit(app: &AppHandle) -> bool {
     }
 }
 
-fn cleanup_before_forced_exit() {
-    if let Ok(mut guard) = service_client::client().lock() {
-        let _ = guard.disable_all();
-    }
+fn cleanup_before_forced_exit(app: &AppHandle) -> bool {
+    cleanup_before_user_exit(app)
 }
 
 pub(crate) fn set_tray_status(app: &AppHandle, running: bool) {

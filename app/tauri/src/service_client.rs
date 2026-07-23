@@ -1,4 +1,6 @@
 use std::ffi::OsStr;
+#[cfg(windows)]
+use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::net::{TcpStream, ToSocketAddrs};
@@ -8,18 +10,38 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
 #[cfg(windows)]
-use std::os::windows::ffi::OsStrExt;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA,
+    ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_MARKED_FOR_DELETE, ERROR_SERVICE_NOT_ACTIVE,
+    STILL_ACTIVE, S_OK,
+};
+#[cfg(windows)]
+use windows_sys::Win32::System::Com::CoTaskMemFree;
+#[cfg(windows)]
+use windows_sys::Win32::System::Services::{
+    CloseServiceHandle, ControlService, DeleteService, EnumServicesStatusExW, OpenSCManagerW,
+    OpenServiceW, QueryServiceConfigW, QueryServiceStatusEx, ENUM_SERVICE_STATUS_PROCESSW,
+    QUERY_SERVICE_CONFIGW, SC_ENUM_PROCESS_INFO, SC_HANDLE, SC_MANAGER_CONNECT,
+    SC_MANAGER_ENUMERATE_SERVICE, SC_STATUS_PROCESS_INFO, SERVICE_CONTROL_STOP, SERVICE_DRIVER,
+    SERVICE_QUERY_CONFIG, SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_STATE_ALL, SERVICE_STATUS,
+    SERVICE_STATUS_PROCESS, SERVICE_STOP, SERVICE_STOPPED, SERVICE_STOP_PENDING,
+};
 #[cfg(windows)]
 use windows_sys::Win32::System::Threading::{
-    GetExitCodeProcess, GetProcessId, OpenProcess, TerminateProcess,
+    GetExitCodeProcess, GetProcessId, OpenProcess, TerminateProcess, WaitForSingleObject,
     PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 #[cfg(windows)]
-use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+use windows_sys::Win32::UI::Shell::{
+    FOLDERID_LocalAppData, SHGetKnownFolderPath, ShellExecuteExW, KF_FLAG_DONT_VERIFY,
+    SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
+};
 #[cfg(windows)]
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
@@ -32,8 +54,15 @@ use zapret_manager_core::{
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(windows)]
+const WAIT_TIMEOUT: u32 = 0x00000102;
+#[cfg(windows)]
+const WAIT_FAILED: u32 = 0xFFFF_FFFF;
+#[cfg(windows)]
+const CLEANUP_WAIT_MS: u32 = 60_000;
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BUILD_ID: &str = env!("ZAPRET_MANAGER_BUILD_ID");
+pub const WINDIVERT_CLEANUP_ARG: &str = "--zapret-manager-cleanup-windivert";
 
 static STATE: OnceLock<Mutex<ServiceClient>> = OnceLock::new();
 
@@ -78,18 +107,22 @@ impl ServiceClient {
     }
 
     pub fn status(&self) -> Result<AppStatus> {
+        let windivert_report = runtime_windivert_report(&self.data_root.join("engine-runtime"))
+            .unwrap_or_else(|err| format!("windivert_check_error={err}"));
         Ok(AppStatus {
-            status: if self.cleanup_failed {
-                RuntimeStatus::Error
-            } else if self.enabled {
-                RuntimeStatus::Running
-            } else {
-                RuntimeStatus::Disabled
-            },
+            status: runtime_status_from_cleanup_state(
+                self.cleanup_failed,
+                self.enabled,
+                &windivert_report,
+            ),
             enabled_profiles: self.enabled_profiles.clone(),
             profiles: self.list_profiles()?,
             message: if self.cleanup_failed {
                 "Отключение не завершено".to_string()
+            } else if windivert_report.contains("windivert_check_error=") {
+                "Отключение не завершено: не удалось проверить WinDivert driver.".to_string()
+            } else if !self.enabled && windivert_report_has_app_owned_driver(&windivert_report) {
+                "Отключение не завершено: app-owned WinDivert driver всё ещё запущен.".to_string()
             } else if self.enabled {
                 "Работает".to_string()
             } else {
@@ -183,6 +216,7 @@ impl ServiceClient {
         )?;
 
         self.cleanup_orphan_runtime_processes("enable_preflight")?;
+        self.cleanup_app_owned_windivert("enable_preflight")?;
         let runtime_dir = match self.prepare_runtime_engine() {
             Ok(runtime_dir) => runtime_dir,
             Err(err) => {
@@ -200,18 +234,46 @@ impl ServiceClient {
         let engine_process = match self.start_engine(&runtime_dir, &profiles) {
             Ok(engine_process) => engine_process,
             Err(err) => {
-                cleanup_runtime_dir_best_effort(&runtime_dir);
-                let _ = cleanup_orphan_winws_by_runtime(&self.data_root.join("engine-runtime"));
+                let mut cleanup_errors = Vec::new();
+                if let Err(cleanup_err) =
+                    cleanup_orphan_winws_by_runtime(&self.data_root.join("engine-runtime"))
+                {
+                    cleanup_errors.push(cleanup_err.to_string());
+                }
+                if let Err(cleanup_err) =
+                    cleanup_app_owned_windivert_by_runtime(&self.data_root.join("engine-runtime"))
+                {
+                    cleanup_errors.push(cleanup_err.to_string());
+                }
+                if let Err(cleanup_err) =
+                    verify_no_app_owned_windivert(&self.data_root.join("engine-runtime"))
+                {
+                    cleanup_errors.push(cleanup_err.to_string());
+                }
+                if cleanup_errors.is_empty() {
+                    cleanup_runtime_dir_best_effort(&runtime_dir);
+                    self.cleanup_failed = false;
+                } else {
+                    self.cleanup_failed = true;
+                }
                 self.log_debug(
                     "error",
                     "engine_start_failed",
                     &format!(
-                        "stage=start_engine, runtime_dir={}, strategy={}, error={err}",
+                        "stage=start_engine, runtime_dir={}, strategy={}, error={err}, cleanup_errors={}",
                         runtime_dir.display(),
-                        self.settings.engine_strategy
+                        self.settings.engine_strategy,
+                        cleanup_errors.join(" | ")
                     ),
                 )?;
-                return Err(err);
+                return if cleanup_errors.is_empty() {
+                    Err(err)
+                } else {
+                    Err(ZapretError::Operation(format!(
+                        "{err}; Отключение не завершено: {}",
+                        cleanup_errors.join(" | ")
+                    )))
+                };
             }
         };
         let pid = engine_process.pid;
@@ -237,6 +299,7 @@ impl ServiceClient {
         )?;
 
         let mut cleanup_errors = Vec::new();
+        let mut runtime_dirs_to_remove = Vec::new();
 
         if let Some(mut engine) = self.engine.take() {
             let pid = engine.pid;
@@ -262,21 +325,39 @@ impl ServiceClient {
                     }
                 }
             } else {
-                if let Err(err) = stop_pid(pid, &engine.runtime_dir) {
-                    cleanup_errors.push(format!("terminate pid={pid}: {err}"));
+                #[cfg(windows)]
+                if let Some(handle) = engine.process_handle.take() {
+                    if let Err(err) = terminate_process_handle(handle, pid) {
+                        cleanup_errors.push(format!("terminate handle pid={pid}: {err}"));
+                    } else {
+                        self.log_debug(
+                            "info",
+                            "engine_terminate_handle_sent",
+                            &format!("pid={pid}"),
+                        )?;
+                    }
+                } else {
+                    if let Err(err) = stop_pid(pid, &engine.runtime_dir) {
+                        cleanup_errors.push(format!("terminate pid={pid}: {err}"));
+                    }
+                    self.log_debug("info", "engine_terminate_sent", &format!("pid={pid}"))?;
                 }
-                self.log_debug("info", "engine_terminate_sent", &format!("pid={pid}"))?;
-            }
-            #[cfg(windows)]
-            if let Some(handle) = engine.process_handle.take() {
-                unsafe {
-                    CloseHandle(handle as _);
+                #[cfg(not(windows))]
+                {
+                    if let Err(err) = stop_pid(pid, &engine.runtime_dir) {
+                        cleanup_errors.push(format!("terminate pid={pid}: {err}"));
+                    }
+                    self.log_debug("info", "engine_terminate_sent", &format!("pid={pid}"))?;
                 }
             }
-            cleanup_runtime_dir_best_effort(&engine.runtime_dir);
+            runtime_dirs_to_remove.push(engine.runtime_dir.clone());
         }
 
         if let Err(err) = self.cleanup_orphan_runtime_processes("disable_all") {
+            cleanup_errors.push(err.to_string());
+        }
+
+        if let Err(err) = self.cleanup_app_owned_windivert("disable_all") {
             cleanup_errors.push(err.to_string());
         }
 
@@ -294,7 +375,24 @@ impl ServiceClient {
             Err(err) => cleanup_errors.push(err.to_string()),
         }
 
+        match verify_no_app_owned_windivert(&self.data_root.join("engine-runtime")) {
+            Ok(report) => {
+                self.log_debug(
+                    "info",
+                    "disable_windivert_verify",
+                    &format!(
+                        "runtime_root={}, {report}",
+                        self.data_root.join("engine-runtime").display()
+                    ),
+                )?;
+            }
+            Err(err) => cleanup_errors.push(err.to_string()),
+        }
+
         if cleanup_errors.is_empty() {
+            for runtime_dir in runtime_dirs_to_remove {
+                cleanup_runtime_dir_best_effort(&runtime_dir);
+            }
             let (enabled, profiles, cleanup_failed) =
                 disable_state_after_cleanup(self.enabled, &self.enabled_profiles, true);
             self.enabled = enabled;
@@ -522,6 +620,8 @@ impl ServiceClient {
         let (engine_status, engine_summary) = self.engine_process_summary();
         let winws_report = runtime_winws_report(&self.data_root.join("engine-runtime"))
             .unwrap_or_else(|err| format!("process_check_error={err}"));
+        let windivert_report = runtime_windivert_report(&self.data_root.join("engine-runtime"))
+            .unwrap_or_else(|err| format!("windivert_check_error={err}"));
         vec![
             diag(
                 "build_identity",
@@ -598,6 +698,20 @@ impl ServiceClient {
                 },
                 &winws_report,
             ),
+            diag(
+                "windivert_driver_state",
+                "WinDivert driver",
+                if windivert_report.contains("windivert_check_error=")
+                    || (!self.enabled
+                        && (windivert_report_has_app_owned_driver(&windivert_report)
+                            || windivert_report_has_running_driver(&windivert_report)))
+                {
+                    DiagnosticStatus::Error
+                } else {
+                    DiagnosticStatus::Ok
+                },
+                &windivert_report,
+            ),
         ]
     }
 
@@ -608,7 +722,10 @@ impl ServiceClient {
                 "Engine process is not tracked in current app session.".to_string(),
             );
         };
-        let alive = pid_is_running(engine.pid);
+        let (alive, process_check) = match pid_is_running(engine.pid) {
+            Ok(alive) => (alive, "ok".to_string()),
+            Err(err) => (true, format!("error={err}")),
+        };
         let uptime = engine
             .started_at
             .elapsed()
@@ -622,9 +739,10 @@ impl ServiceClient {
         (
             status,
             format!(
-                "pid={}, alive={}, uptime={}, runtime_dir={}",
+                "pid={}, alive={}, process_check={}, uptime={}, runtime_dir={}",
                 engine.pid,
                 alive,
+                process_check,
                 uptime,
                 sanitize_text(
                     &self.data_root,
@@ -681,6 +799,8 @@ impl ServiceClient {
             .unwrap_or_else(|| "engine-launch.log not found".to_string());
         let runtime_report = runtime_winws_report(&self.data_root.join("engine-runtime"))
             .unwrap_or_else(|err| format!("process_check_error={err}"));
+        let windivert_report = runtime_windivert_report(&self.data_root.join("engine-runtime"))
+            .unwrap_or_else(|err| format!("windivert_check_error={err}"));
         let (_, engine_summary) = self.engine_process_summary();
         let endpoint_checks = diagnostic_report_text(self.connectivity_diagnostics());
         let messaging_checks = diagnostic_report_text(self.messaging_diagnostics());
@@ -694,6 +814,7 @@ impl ServiceClient {
              admin={}\n\
              engine_process_state={}\n\
              winws_runtime_process={}\n\
+             windivert_driver_state={}\n\
              latest_launch_log={}\n\n\
              [endpoint checks]\n{}\n\n\
              [telegram whatsapp checks]\n{}\n\n\
@@ -712,6 +833,7 @@ impl ServiceClient {
             is_elevated(),
             engine_summary,
             runtime_report,
+            windivert_report,
             launch_log_path
                 .as_ref()
                 .map(|path| sanitize_text(
@@ -904,20 +1026,27 @@ impl ServiceClient {
             .map(|duration| duration.as_millis())
             .unwrap_or(0);
         let target = runtime_root.join(format!("run-{run_id}"));
-        copy_dir_recursive(&source, &target)?;
+        fs::create_dir_all(&target)
+            .map_err(|source_err| zapret_manager_core::io_error(&target, source_err))?;
+        copy_dir_recursive(&source.join("lists"), &target.join("lists"))?;
         cleanup_old_runtime_dirs(&runtime_root, &target);
         self.log_debug(
             "info",
             "engine_runtime_prepared",
-            &format!("source={}, target={}", source.display(), target.display()),
+            &format!(
+                "binary_source={}, runtime_lists={}",
+                source.display(),
+                target.join("lists").display()
+            ),
         )?;
         Ok(target)
     }
 
     fn start_engine(&self, runtime_dir: &Path, profiles: &[String]) -> Result<EngineProcess> {
         let strategy = normalized_engine_strategy(&self.settings.engine_strategy);
-        let bat = runtime_dir.join(strategy_bat_file(&strategy));
-        let launch = build_winws_launch(&bat, runtime_dir, &strategy, profiles)?;
+        let engine_root = self.content_root.join("engine").join("local");
+        let bat = engine_root.join(strategy_bat_file(&strategy));
+        let launch = build_winws_launch(&bat, runtime_dir, &engine_root, &strategy, profiles)?;
         self.log_debug(
             "info",
             "engine_start_winws_direct",
@@ -946,7 +1075,6 @@ impl ServiceClient {
                     &launch.log_path,
                     &format!("early_exit=true\nexit_status={status}\n"),
                 );
-                cleanup_runtime_dir_best_effort(runtime_dir);
                 return Err(ZapretError::Operation(format!(
                     "Engine сразу завершился с кодом {:?}. Build: {}. В engine-launch.log есть preflight и argv_list. Если ошибка повторится, экспортируйте diagnostic-export.txt. Лог запуска: {}",
                     status.code(),
@@ -956,7 +1084,8 @@ impl ServiceClient {
             }
         }
 
-        if !pid_is_running(pid) {
+        let pid_alive = pid_is_running(pid)?;
+        if !pid_alive {
             #[cfg(windows)]
             let exit_code = process_handle.and_then(process_handle_exit_code);
             #[cfg(not(windows))]
@@ -965,7 +1094,6 @@ impl ServiceClient {
                 &launch.log_path,
                 &format!("early_exit=true\npid={pid}\nexit_code={exit_code:?}\n"),
             );
-            cleanup_runtime_dir_best_effort(runtime_dir);
             return Err(ZapretError::Operation(format!(
                 "Engine был запущен, но процесс сразу завершился. Exit code: {:?}. Build: {}. В engine-launch.log есть preflight и argv_list; экспортируйте diagnostic-export.txt. Проверьте WinDivert/UAC/антивирус. Лог запуска: {}",
                 exit_code,
@@ -998,6 +1126,23 @@ impl ServiceClient {
         }
         Ok(())
     }
+
+    fn cleanup_app_owned_windivert(&self, stage: &str) -> Result<()> {
+        let runtime_root = self.data_root.join("engine-runtime");
+        let report = cleanup_app_owned_windivert_by_runtime(&runtime_root)?;
+        if !report.trim().is_empty() {
+            self.log_debug(
+                "info",
+                "windivert_driver_cleanup",
+                &format!(
+                    "stage={stage}, runtime_root={}, {report}",
+                    runtime_root.display()
+                ),
+            )?;
+        }
+        Ok(())
+    }
+
     fn write_settings(&self) -> Result<()> {
         let path = self.data_root.join("settings.json");
         if let Some(parent) = path.parent() {
@@ -1037,6 +1182,7 @@ fn strategy_bat_file(strategy: &str) -> &'static str {
 
 struct WinwsLaunch {
     exe_path: PathBuf,
+    engine_root: PathBuf,
     work_dir: PathBuf,
     args: Vec<String>,
     log_path: PathBuf,
@@ -1052,18 +1198,19 @@ struct LaunchPreflight {
 
 fn build_winws_launch(
     bat: &Path,
-    work_dir: &Path,
+    runtime_dir: &Path,
+    engine_root: &Path,
     strategy: &str,
     selected_profiles: &[String],
 ) -> Result<WinwsLaunch> {
-    let log = work_dir.join("engine-launch.log");
+    let log = runtime_dir.join("engine-launch.log");
     let strategy_source =
         fs::read_to_string(bat).map_err(|source| zapret_manager_core::io_error(bat, source))?;
     let command_line = extract_winws_command(&strategy_source).ok_or_else(|| {
         ZapretError::Operation(format!("winws.exe command not found in {}", bat.display()))
     })?;
-    let bin_dir = work_dir.join("bin");
-    let lists_dir = work_dir.join("lists");
+    let bin_dir = engine_root.join("bin");
+    let lists_dir = runtime_dir.join("lists");
     let expanded = expand_strategy_vars(&command_line, &bin_dir, &lists_dir);
     let mut parts = split_windows_args(&expanded);
     if parts.is_empty() {
@@ -1139,6 +1286,7 @@ fn build_winws_launch(
 
     Ok(WinwsLaunch {
         exe_path,
+        engine_root: engine_root.to_path_buf(),
         work_dir: bin_dir,
         args: parts,
         log_path: log,
@@ -1278,6 +1426,70 @@ fn disable_state_after_cleanup(
     } else {
         (enabled || !profiles.is_empty(), profiles.to_vec(), true)
     }
+}
+
+fn runtime_status_from_cleanup_state(
+    cleanup_failed: bool,
+    enabled: bool,
+    windivert_report: &str,
+) -> RuntimeStatus {
+    if cleanup_failed || windivert_report.contains("windivert_check_error=") {
+        RuntimeStatus::Error
+    } else if enabled {
+        RuntimeStatus::Running
+    } else if windivert_report_has_app_owned_driver(windivert_report)
+        || windivert_report_has_running_driver(windivert_report)
+    {
+        RuntimeStatus::Error
+    } else {
+        RuntimeStatus::Disabled
+    }
+}
+
+fn windivert_report_has_app_owned_driver(report: &str) -> bool {
+    report
+        .to_ascii_lowercase()
+        .contains("app_owned_driver=true")
+}
+
+fn windivert_report_has_running_driver(report: &str) -> bool {
+    let report = report.to_ascii_lowercase();
+    report.contains("state=running") || report.contains("started=true")
+}
+
+fn windivert_driver_path_is_app_owned(path_name: &str, runtime_root: &Path) -> bool {
+    let driver_path = normalize_windows_path_for_scope(path_name);
+    let runtime_root = normalize_windows_path_for_scope(&runtime_root.display().to_string());
+    !runtime_root.is_empty()
+        && (driver_path == runtime_root
+            || driver_path
+                .strip_prefix(&runtime_root)
+                .is_some_and(|suffix| suffix.starts_with('\\')))
+}
+
+fn normalize_windows_path_for_scope(value: &str) -> String {
+    let value = value
+        .trim()
+        .trim_matches('"')
+        .trim_start_matches(r"\\?\")
+        .trim_start_matches(r"\??\")
+        .replace('/', r"\")
+        .trim_end_matches('\\')
+        .to_ascii_lowercase();
+    let mut parts = Vec::new();
+    for part in value.split('\\') {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        if part == ".." {
+            if parts.last().is_some_and(|last: &&str| !last.ends_with(':')) {
+                parts.pop();
+            }
+            continue;
+        }
+        parts.push(part);
+    }
+    parts.join(r"\")
 }
 
 fn format_argv_lines(exe_path: &Path, args: &[String]) -> String {
@@ -1539,6 +1751,15 @@ fn unescape_cmd_carets(value: &str) -> String {
 }
 
 fn launch_winws(launch: &WinwsLaunch) -> Result<(u32, Option<Child>, Option<isize>)> {
+    verify_engine_integrity_for_launch(&launch.engine_root)?;
+    append_launch_log(
+        &launch.log_path,
+        &format!(
+            "prelaunch_hash_ok=true\nprelaunch_binary_root={}\n",
+            launch.engine_root.display()
+        ),
+    );
+
     if is_elevated() {
         let stdout = OpenOptions::new()
             .create(true)
@@ -1574,6 +1795,21 @@ fn launch_winws(launch: &WinwsLaunch) -> Result<(u32, Option<Child>, Option<isiz
     Ok((pid, None, Some(process_handle)))
 }
 
+fn verify_engine_integrity_for_launch(engine_dir: &Path) -> Result<()> {
+    let manifest_path = engine_dir
+        .parent()
+        .map(|parent| parent.join("manifest.json"))
+        .ok_or_else(|| {
+            ZapretError::Operation(format!(
+                "Engine manifest path cannot be resolved for {}",
+                engine_dir.display()
+            ))
+        })?;
+    let manifest = zapret_manager_core::load_engine_manifest(&manifest_path)?;
+    manifest.validate(&engine_trusted_sources())?;
+    manifest.verify_files(engine_dir, engine_dir)
+}
+
 struct EngineReadiness {
     ready: bool,
     version: String,
@@ -1596,22 +1832,26 @@ fn is_deprecated_strategy(strategy: &str) -> bool {
 }
 
 #[cfg(windows)]
-fn pid_is_running(pid: u32) -> bool {
+fn pid_is_running(pid: u32) -> Result<bool> {
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if handle.is_null() {
-        return false;
+        return Err(last_win32_error(&format!("OpenProcess({pid})")));
     }
     let mut exit_code = 0;
     let ok = unsafe { GetExitCodeProcess(handle, &mut exit_code) };
     unsafe {
         CloseHandle(handle);
     }
-    ok != 0 && exit_code == STILL_ACTIVE as u32
+    if ok == 0 {
+        Err(last_win32_error(&format!("GetExitCodeProcess({pid})")))
+    } else {
+        Ok(exit_code == STILL_ACTIVE as u32)
+    }
 }
 
 #[cfg(not(windows))]
-fn pid_is_running(_pid: u32) -> bool {
-    false
+fn pid_is_running(_pid: u32) -> Result<bool> {
+    Ok(false)
 }
 
 #[cfg(windows)]
@@ -1680,15 +1920,38 @@ fn wide_null(value: &str) -> Vec<u16> {
 }
 
 fn quote_cmd_arg(arg: &str) -> String {
-    if !arg.chars().any(|ch| ch.is_whitespace() || ch == '"') {
+    if !arg.is_empty() && !arg.chars().any(|ch| ch.is_whitespace() || ch == '"') {
         return arg.to_string();
     }
-    let escaped = arg.replace('"', "\\\"");
-    format!("\"{escaped}\"")
+    let mut quoted = String::from("\"");
+    let mut backslashes = 0usize;
+    for ch in arg.chars() {
+        if ch == '\\' {
+            backslashes += 1;
+        } else if ch == '"' {
+            quoted.push_str(&"\\".repeat(backslashes * 2 + 1));
+            quoted.push('"');
+            backslashes = 0;
+        } else {
+            quoted.push_str(&"\\".repeat(backslashes));
+            backslashes = 0;
+            quoted.push(ch);
+        }
+    }
+    quoted.push_str(&"\\".repeat(backslashes * 2));
+    quoted.push('"');
+    quoted
+}
+
+fn quote_cmdline_args(args: &[&str]) -> String {
+    args.iter()
+        .map(|arg| quote_cmd_arg(arg))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn stop_pid(pid: u32, context: &Path) -> Result<()> {
-    if !pid_is_running(pid) {
+    if !pid_is_running(pid)? {
         return Ok(());
     }
     terminate_pid(pid, context)
@@ -1710,14 +1973,31 @@ fn cleanup_orphan_winws_by_runtime(runtime_root: &Path) -> Result<String> {
     if !runtime_root.exists() {
         return Ok("runtime_root_missing=true".to_string());
     }
-    let root = powershell_single_quote(&runtime_root.to_string_lossy().to_lowercase());
+    let root_prefix = powershell_single_quote(&runtime_root_command_prefix(runtime_root));
     let script = format!(
-        "$root = '{root}'; \
-         $items = Get-CimInstance Win32_Process -Filter \"Name = 'winws.exe'\" | \
-           Where-Object {{ $_.CommandLine -and $_.CommandLine.ToLowerInvariant().Contains($root) }}; \
-         foreach ($p in $items) {{ \
-           try {{ Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop; \"stopped pid=$($p.ProcessId)\" }} \
-           catch {{ \"failed pid=$($p.ProcessId): $($_.Exception.Message)\" }} \
+        "$ErrorActionPreference = 'Stop'; \
+         $rootPrefix = '{root_prefix}'; \
+         function Test-AppRuntimeCommandLine([string]$cmd) {{ \
+           if ([string]::IsNullOrWhiteSpace($cmd)) {{ return $false }}; \
+           $normalized = $cmd.ToLowerInvariant().Replace([char]47, [char]92); \
+           return $normalized.Contains($rootPrefix) \
+         }}; \
+         $items = Get-CimInstance Win32_Process -Filter \"Name = 'winws.exe'\" -ErrorAction Stop | \
+           Select-Object ProcessId,CreationDate,CommandLine; \
+         $matches = @(); \
+         foreach ($p in @($items)) {{ \
+           $cmd = [string]$p.CommandLine; \
+           if ([string]::IsNullOrWhiteSpace($cmd)) {{ throw \"winws.exe pid=$($p.ProcessId) has no readable command line\" }}; \
+           if (Test-AppRuntimeCommandLine $cmd) {{ $matches += $p }} \
+         }}; \
+         foreach ($p in @($matches)) {{ \
+           $current = Get-CimInstance Win32_Process -Filter \"ProcessId = $($p.ProcessId)\" -ErrorAction Stop; \
+           if (-not $current) {{ \"vanished pid=$($p.ProcessId)\"; continue }}; \
+           if ($current.CreationDate -ne $p.CreationDate) {{ throw \"winws.exe pid=$($p.ProcessId) identity changed before terminate\" }}; \
+           $cmd = [string]$current.CommandLine; \
+           if ([string]::IsNullOrWhiteSpace($cmd) -or -not (Test-AppRuntimeCommandLine $cmd)) {{ throw \"winws.exe pid=$($p.ProcessId) failed command line revalidation\" }}; \
+           $result = Invoke-CimMethod -InputObject $current -MethodName Terminate -ErrorAction Stop; \
+           if ($result.ReturnValue -eq 0) {{ \"terminated pid=$($p.ProcessId)\" }} else {{ throw \"terminate pid=$($p.ProcessId) returned $($result.ReturnValue)\" }} \
          }}"
     );
     let mut command = Command::new("powershell.exe");
@@ -1728,7 +2008,7 @@ fn cleanup_orphan_winws_by_runtime(runtime_root: &Path) -> Result<String> {
         .map_err(|source| zapret_manager_core::io_error(runtime_root, source))?;
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if output.status.success() {
+    if output.status.success() && stderr.is_empty() {
         let report = if stdout.is_empty() {
             "orphan_count=0".to_string()
         } else {
@@ -1767,6 +2047,22 @@ fn verify_no_runtime_winws(runtime_root: &Path) -> Result<String> {
 
 fn powershell_single_quote(value: &str) -> String {
     value.replace('\'', "''")
+}
+
+fn runtime_root_command_prefix(runtime_root: &Path) -> String {
+    let mut prefix = runtime_root
+        .to_string_lossy()
+        .replace('/', r"\")
+        .trim_end_matches('\\')
+        .to_ascii_lowercase();
+    prefix.push('\\');
+    prefix
+}
+
+#[cfg(test)]
+fn command_line_references_runtime_root(command_line: &str, runtime_root: &Path) -> bool {
+    let command = command_line.replace('/', r"\").to_ascii_lowercase();
+    command.contains(&runtime_root_command_prefix(runtime_root))
 }
 
 fn append_launch_log(path: &Path, message: &str) {
@@ -1833,14 +2129,25 @@ fn runtime_winws_report(runtime_root: &Path) -> Result<String> {
     if !runtime_root.exists() {
         return Ok("runtime_root_missing=true; winws_running=false".to_string());
     }
-    let root = powershell_single_quote(&runtime_root.to_string_lossy().to_lowercase());
+    let root_prefix = powershell_single_quote(&runtime_root_command_prefix(runtime_root));
     let script = format!(
-        "$root = '{root}'; \
-         $items = Get-CimInstance Win32_Process -Filter \"Name = 'winws.exe'\" | \
-           Where-Object {{ $_.CommandLine -and $_.CommandLine.ToLowerInvariant().Contains($root) }} | \
+        "$ErrorActionPreference = 'Stop'; \
+         $rootPrefix = '{root_prefix}'; \
+         function Test-AppRuntimeCommandLine([string]$cmd) {{ \
+           if ([string]::IsNullOrWhiteSpace($cmd)) {{ return $false }}; \
+           $normalized = $cmd.ToLowerInvariant().Replace([char]47, [char]92); \
+           return $normalized.Contains($rootPrefix) \
+         }}; \
+         $items = Get-CimInstance Win32_Process -Filter \"Name = 'winws.exe'\" -ErrorAction Stop | \
            Select-Object ProcessId,CommandLine; \
-         if (-not $items) {{ 'winws_running=false' }} else {{ \
-           foreach ($p in $items) {{ \"pid=$($p.ProcessId); command=$($p.CommandLine)\" }} \
+         $matches = @(); \
+         foreach ($p in @($items)) {{ \
+           $cmd = [string]$p.CommandLine; \
+           if ([string]::IsNullOrWhiteSpace($cmd)) {{ throw \"winws.exe pid=$($p.ProcessId) has no readable command line\" }}; \
+           if (Test-AppRuntimeCommandLine $cmd) {{ $matches += $p }} \
+         }}; \
+         if (-not $matches) {{ 'winws_running=false' }} else {{ \
+           foreach ($p in @($matches)) {{ \"pid=$($p.ProcessId); command=$($p.CommandLine)\" }} \
          }}"
     );
     let mut command = Command::new("powershell.exe");
@@ -1851,7 +2158,7 @@ fn runtime_winws_report(runtime_root: &Path) -> Result<String> {
         .map_err(|source| zapret_manager_core::io_error(runtime_root, source))?;
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if output.status.success() {
+    if output.status.success() && stderr.is_empty() {
         Ok(if stdout.is_empty() {
             "winws_running=false".to_string()
         } else {
@@ -1867,6 +2174,673 @@ fn runtime_winws_report(runtime_root: &Path) -> Result<String> {
 #[cfg(not(windows))]
 fn runtime_winws_report(_runtime_root: &Path) -> Result<String> {
     Ok("windows_only=false; winws_running=false".to_string())
+}
+
+#[cfg(windows)]
+fn cleanup_app_owned_windivert_by_runtime(runtime_root: &Path) -> Result<String> {
+    validate_windivert_cleanup_root(runtime_root)?;
+    if !is_elevated() {
+        runas_self_windivert_cleanup_and_wait(runtime_root)?;
+        return Ok(
+            "spawn_mode=runas_uac; elevated_cleanup_exit=0; windivert_running=false; app_owned_driver=false"
+                .to_string(),
+        );
+    }
+
+    cleanup_app_owned_windivert_scm(runtime_root)
+}
+
+#[cfg(not(windows))]
+fn cleanup_app_owned_windivert_by_runtime(_runtime_root: &Path) -> Result<String> {
+    Ok("windows_only=false; windivert_running=false; app_owned_driver=false".to_string())
+}
+
+#[cfg(windows)]
+fn cleanup_app_owned_windivert_scm(runtime_root: &Path) -> Result<String> {
+    let initial = enumerate_app_owned_windivert_services(runtime_root)?;
+    if initial.is_empty() {
+        return Ok("windivert_running=false; app_owned_driver=false".to_string());
+    }
+
+    let scm = open_scm(SC_MANAGER_CONNECT)?;
+    let mut actions = Vec::new();
+    for service in initial {
+        let handle = match open_service(
+            &scm,
+            &service.name,
+            SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | SERVICE_STOP | DELETE_ACCESS,
+        )? {
+            OpenServiceResult::Open(handle) => handle,
+            OpenServiceResult::Missing => {
+                actions.push(format!("vanished name={}", service.name));
+                continue;
+            }
+            OpenServiceResult::MarkedForDelete => {
+                if service.state == SERVICE_STOPPED {
+                    actions.push(format!("marked_for_delete_stopped name={}", service.name));
+                    continue;
+                }
+                return Err(ZapretError::Operation(format!(
+                    "Отключение не завершено: WinDivert service {} is marked for delete but still {}; cannot verify cleanup.",
+                    service.name,
+                    service_state_name(service.state)
+                )));
+            }
+        };
+        let binary_path = query_service_binary_path(&handle)?;
+        if !validate_app_owned_windivert_driver_path(&binary_path, runtime_root)? {
+            return Err(ZapretError::Operation(format!(
+                "Отключение не завершено: refusing WinDivert cleanup outside app runtime: name={}, path={}",
+                service.name, binary_path
+            )));
+        }
+        stop_service_if_needed(&handle, &service.name)?;
+        delete_service_if_present(&handle, &service.name)?;
+        actions.push(format!(
+            "cleaned name={}; state={}; path={}",
+            service.name,
+            service_state_name(service.state),
+            binary_path
+        ));
+    }
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(8);
+    loop {
+        let remaining = enumerate_app_owned_windivert_services(runtime_root)?;
+        if remaining.is_empty() {
+            actions.push("windivert_running=false; app_owned_driver=false".to_string());
+            return Ok(actions.join("\n"));
+        }
+        if std::time::Instant::now() >= deadline {
+            let report = format_windivert_services(&remaining);
+            return Err(ZapretError::Operation(format!(
+                "Отключение не завершено: app-owned WinDivert driver still present: {report}"
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+#[cfg(windows)]
+fn runtime_windivert_report(runtime_root: &Path) -> Result<String> {
+    let services = enumerate_app_owned_windivert_services(runtime_root)?;
+    if services.is_empty() {
+        Ok("windivert_running=false; app_owned_driver=false".to_string())
+    } else {
+        Ok(format_windivert_services(&services))
+    }
+}
+
+#[cfg(not(windows))]
+fn runtime_windivert_report(_runtime_root: &Path) -> Result<String> {
+    Ok("windows_only=false; windivert_running=false; app_owned_driver=false".to_string())
+}
+
+#[cfg(windows)]
+fn verify_no_app_owned_windivert(runtime_root: &Path) -> Result<String> {
+    let report = runtime_windivert_report(runtime_root)?;
+    if windivert_report_has_app_owned_driver(&report)
+        || windivert_report_has_running_driver(&report)
+    {
+        Err(ZapretError::Operation(format!(
+            "Отключение не завершено: app-owned WinDivert driver still present: {report}"
+        )))
+    } else {
+        Ok(report)
+    }
+}
+
+#[cfg(not(windows))]
+fn verify_no_app_owned_windivert(runtime_root: &Path) -> Result<String> {
+    runtime_windivert_report(runtime_root)
+}
+
+#[cfg(windows)]
+pub fn run_windivert_cleanup_cli(runtime_root: PathBuf) -> i32 {
+    match validate_windivert_cleanup_root(&runtime_root)
+        .and_then(|_| cleanup_app_owned_windivert_scm(&runtime_root))
+        .and_then(|_| verify_no_app_owned_windivert(&runtime_root))
+    {
+        Ok(_) => 0,
+        Err(_) => 2,
+    }
+}
+
+#[cfg(not(windows))]
+pub fn run_windivert_cleanup_cli(_runtime_root: PathBuf) -> i32 {
+    0
+}
+
+#[cfg(windows)]
+fn runas_self_windivert_cleanup_and_wait(runtime_root: &Path) -> Result<u32> {
+    let exe_path = std::env::current_exe()
+        .map_err(|source| zapret_manager_core::io_error("current_exe", source))?;
+    let exe_dir = exe_path.parent().unwrap_or_else(|| Path::new("."));
+    let operation = wide_null("runas");
+    let file = wide_null(&exe_path.to_string_lossy());
+    let directory = wide_null(&exe_dir.to_string_lossy());
+    let parameters = wide_null(&quote_cmdline_args(&[
+        WINDIVERT_CLEANUP_ARG,
+        &runtime_root.to_string_lossy(),
+    ]));
+
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS,
+        hwnd: std::ptr::null_mut(),
+        lpVerb: operation.as_ptr(),
+        lpFile: file.as_ptr(),
+        lpParameters: parameters.as_ptr(),
+        lpDirectory: directory.as_ptr(),
+        nShow: SW_HIDE,
+        hInstApp: std::ptr::null_mut(),
+        lpIDList: std::ptr::null_mut(),
+        lpClass: std::ptr::null(),
+        hkeyClass: std::ptr::null_mut(),
+        dwHotKey: 0,
+        Anonymous: Default::default(),
+        hProcess: std::ptr::null_mut(),
+    };
+
+    let ok = unsafe { ShellExecuteExW(&mut info) };
+    if ok == 0 || info.hProcess.is_null() {
+        return Err(ZapretError::Operation(
+            "Отключение не завершено: UAC cleanup для WinDivert отменён или не запустился."
+                .to_string(),
+        ));
+    }
+
+    let wait = unsafe { WaitForSingleObject(info.hProcess, CLEANUP_WAIT_MS) };
+    if wait == WAIT_TIMEOUT {
+        unsafe {
+            CloseHandle(info.hProcess);
+        }
+        return Err(ZapretError::Operation(
+            "Отключение не завершено: elevated WinDivert cleanup не завершился за 60 секунд."
+                .to_string(),
+        ));
+    }
+    if wait == WAIT_FAILED {
+        unsafe {
+            CloseHandle(info.hProcess);
+        }
+        return Err(last_win32_error(
+            "WaitForSingleObject(elevated WinDivert cleanup)",
+        ));
+    }
+
+    let mut exit_code = 0;
+    let exit_ok = unsafe { GetExitCodeProcess(info.hProcess, &mut exit_code) };
+    unsafe {
+        CloseHandle(info.hProcess);
+    }
+    if exit_ok == 0 {
+        return Err(ZapretError::Operation(
+            "Отключение не завершено: Windows не вернул код elevated cleanup.".to_string(),
+        ));
+    }
+    if exit_code == 0 {
+        Ok(exit_code)
+    } else {
+        Err(ZapretError::Operation(format!(
+            "Отключение не завершено: elevated WinDivert cleanup завершился с кодом {exit_code}."
+        )))
+    }
+}
+
+#[cfg(windows)]
+const DELETE_ACCESS: u32 = 0x0001_0000;
+
+#[cfg(windows)]
+struct ScHandle(SC_HANDLE);
+
+#[cfg(windows)]
+impl Drop for ScHandle {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                CloseServiceHandle(self.0);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+enum OpenServiceResult {
+    Open(ScHandle),
+    Missing,
+    MarkedForDelete,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone)]
+struct WinDivertServiceReport {
+    name: String,
+    state: u32,
+    binary_path: String,
+}
+
+#[cfg(windows)]
+fn open_scm(access: u32) -> Result<ScHandle> {
+    let handle = unsafe { OpenSCManagerW(std::ptr::null(), std::ptr::null(), access) };
+    if handle.is_null() {
+        Err(last_win32_error("OpenSCManagerW"))
+    } else {
+        Ok(ScHandle(handle))
+    }
+}
+
+#[cfg(windows)]
+fn open_service(scm: &ScHandle, name: &str, access: u32) -> Result<OpenServiceResult> {
+    if !windivert_service_name_is_safe(name) {
+        return Err(ZapretError::Operation(format!(
+            "Отключение не завершено: unsafe WinDivert service name: {name}"
+        )));
+    }
+    let service_name = wide_null(name);
+    let handle = unsafe { OpenServiceW(scm.0, service_name.as_ptr(), access) };
+    if handle.is_null() {
+        let code = unsafe { GetLastError() };
+        if code == ERROR_SERVICE_DOES_NOT_EXIST {
+            Ok(OpenServiceResult::Missing)
+        } else if code == ERROR_SERVICE_MARKED_FOR_DELETE {
+            Ok(OpenServiceResult::MarkedForDelete)
+        } else {
+            Err(last_win32_error(&format!("OpenServiceW({name})")))
+        }
+    } else {
+        Ok(OpenServiceResult::Open(ScHandle(handle)))
+    }
+}
+
+#[cfg(windows)]
+fn enumerate_app_owned_windivert_services(
+    runtime_root: &Path,
+) -> Result<Vec<WinDivertServiceReport>> {
+    let scm = open_scm(SC_MANAGER_CONNECT | SC_MANAGER_ENUMERATE_SERVICE)?;
+    let mut bytes_needed = 0u32;
+    let mut services_returned = 0u32;
+    let mut resume_handle = 0u32;
+    let first = unsafe {
+        EnumServicesStatusExW(
+            scm.0,
+            SC_ENUM_PROCESS_INFO,
+            SERVICE_DRIVER,
+            SERVICE_STATE_ALL,
+            std::ptr::null_mut(),
+            0,
+            &mut bytes_needed,
+            &mut services_returned,
+            &mut resume_handle,
+            std::ptr::null(),
+        )
+    };
+    if first != 0 && services_returned == 0 {
+        return Ok(Vec::new());
+    }
+    let code = unsafe { GetLastError() };
+    if first == 0
+        && code != ERROR_MORE_DATA
+        && code != ERROR_INSUFFICIENT_BUFFER
+        && bytes_needed == 0
+    {
+        return Err(last_win32_error("EnumServicesStatusExW"));
+    }
+    if bytes_needed == 0 {
+        return Ok(Vec::new());
+    }
+
+    let usize_count =
+        (bytes_needed as usize + std::mem::size_of::<usize>() - 1) / std::mem::size_of::<usize>();
+    let mut buffer = vec![0usize; usize_count];
+    services_returned = 0;
+    resume_handle = 0;
+    let ok = unsafe {
+        EnumServicesStatusExW(
+            scm.0,
+            SC_ENUM_PROCESS_INFO,
+            SERVICE_DRIVER,
+            SERVICE_STATE_ALL,
+            buffer.as_mut_ptr() as *mut u8,
+            (buffer.len() * std::mem::size_of::<usize>()) as u32,
+            &mut bytes_needed,
+            &mut services_returned,
+            &mut resume_handle,
+            std::ptr::null(),
+        )
+    };
+    if ok == 0 {
+        return Err(last_win32_error("EnumServicesStatusExW"));
+    }
+
+    let entries = unsafe {
+        std::slice::from_raw_parts(
+            buffer.as_ptr() as *const ENUM_SERVICE_STATUS_PROCESSW,
+            services_returned as usize,
+        )
+    };
+    let mut reports = Vec::new();
+    for entry in entries {
+        let name = unsafe { wide_ptr_to_string(entry.lpServiceName) };
+        if !windivert_service_name_is_safe(&name) {
+            continue;
+        }
+        let enum_state = entry.ServiceStatusProcess.dwCurrentState;
+        let handle = match open_service(&scm, &name, SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS)? {
+            OpenServiceResult::Open(handle) => handle,
+            OpenServiceResult::Missing => continue,
+            OpenServiceResult::MarkedForDelete => {
+                if enum_state == SERVICE_STOPPED {
+                    continue;
+                }
+                return Err(ZapretError::Operation(format!(
+                    "Отключение не завершено: WinDivert service {name} is marked for delete but still {}; cannot verify cleanup.",
+                    service_state_name(enum_state)
+                )));
+            }
+        };
+        let binary_path = query_service_binary_path(&handle)?;
+        if validate_app_owned_windivert_driver_path(&binary_path, runtime_root)? {
+            let state = query_service_state(&handle).unwrap_or(enum_state);
+            reports.push(WinDivertServiceReport {
+                name,
+                state,
+                binary_path,
+            });
+        }
+    }
+    Ok(reports)
+}
+
+#[cfg(windows)]
+fn query_service_binary_path(handle: &ScHandle) -> Result<String> {
+    let mut bytes_needed = 0u32;
+    let first =
+        unsafe { QueryServiceConfigW(handle.0, std::ptr::null_mut(), 0, &mut bytes_needed) };
+    let code = unsafe { GetLastError() };
+    if first == 0 && code != ERROR_INSUFFICIENT_BUFFER && code != ERROR_MORE_DATA {
+        return Err(last_win32_error("QueryServiceConfigW"));
+    }
+    if bytes_needed == 0 {
+        return Ok(String::new());
+    }
+    let usize_count =
+        (bytes_needed as usize + std::mem::size_of::<usize>() - 1) / std::mem::size_of::<usize>();
+    let mut buffer = vec![0usize; usize_count];
+    let config = buffer.as_mut_ptr() as *mut QUERY_SERVICE_CONFIGW;
+    let ok = unsafe {
+        QueryServiceConfigW(
+            handle.0,
+            config,
+            (buffer.len() * std::mem::size_of::<usize>()) as u32,
+            &mut bytes_needed,
+        )
+    };
+    if ok == 0 {
+        return Err(last_win32_error("QueryServiceConfigW"));
+    }
+    Ok(unsafe { wide_ptr_to_string((*config).lpBinaryPathName) })
+}
+
+#[cfg(windows)]
+fn query_service_state(handle: &ScHandle) -> Result<u32> {
+    let mut status = SERVICE_STATUS_PROCESS {
+        dwServiceType: 0,
+        dwCurrentState: 0,
+        dwControlsAccepted: 0,
+        dwWin32ExitCode: 0,
+        dwServiceSpecificExitCode: 0,
+        dwCheckPoint: 0,
+        dwWaitHint: 0,
+        dwProcessId: 0,
+        dwServiceFlags: 0,
+    };
+    let mut bytes_needed = 0u32;
+    let ok = unsafe {
+        QueryServiceStatusEx(
+            handle.0,
+            SC_STATUS_PROCESS_INFO,
+            &mut status as *mut SERVICE_STATUS_PROCESS as *mut u8,
+            std::mem::size_of::<SERVICE_STATUS_PROCESS>() as u32,
+            &mut bytes_needed,
+        )
+    };
+    if ok == 0 {
+        Err(last_win32_error("QueryServiceStatusEx"))
+    } else {
+        Ok(status.dwCurrentState)
+    }
+}
+
+#[cfg(windows)]
+fn stop_service_if_needed(handle: &ScHandle, name: &str) -> Result<()> {
+    let state = query_service_state(handle)?;
+    if state == SERVICE_STOPPED {
+        return Ok(());
+    }
+    let mut status = SERVICE_STATUS {
+        dwServiceType: 0,
+        dwCurrentState: 0,
+        dwControlsAccepted: 0,
+        dwWin32ExitCode: 0,
+        dwServiceSpecificExitCode: 0,
+        dwCheckPoint: 0,
+        dwWaitHint: 0,
+    };
+    let stop_ok = unsafe { ControlService(handle.0, SERVICE_CONTROL_STOP, &mut status) };
+    if stop_ok == 0 {
+        let code = unsafe { GetLastError() };
+        if code != ERROR_SERVICE_NOT_ACTIVE {
+            return Err(last_win32_error(&format!("ControlService({name}, STOP)")));
+        }
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(8);
+    loop {
+        let state = query_service_state(handle)?;
+        if state == SERVICE_STOPPED {
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(ZapretError::Operation(format!(
+                "Отключение не завершено: WinDivert service {name} did not stop in time; state={}.",
+                service_state_name(state)
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+}
+
+#[cfg(windows)]
+fn delete_service_if_present(handle: &ScHandle, name: &str) -> Result<()> {
+    let ok = unsafe { DeleteService(handle.0) };
+    if ok != 0 {
+        return Ok(());
+    }
+    let code = unsafe { GetLastError() };
+    if code == ERROR_SERVICE_MARKED_FOR_DELETE || code == ERROR_SERVICE_DOES_NOT_EXIST {
+        Ok(())
+    } else {
+        Err(last_win32_error(&format!("DeleteService({name})")))
+    }
+}
+
+#[cfg(windows)]
+fn format_windivert_services(services: &[WinDivertServiceReport]) -> String {
+    if services.is_empty() {
+        "windivert_running=false; app_owned_driver=false".to_string()
+    } else {
+        services
+            .iter()
+            .map(|service| {
+                format!(
+                    "app_owned_driver=true; name={}; state={}; started={}; path={}",
+                    service.name,
+                    service_state_name(service.state),
+                    service.state == SERVICE_RUNNING,
+                    sanitize_text(&data_root(), &project_root(), &service.binary_path)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+#[cfg(windows)]
+fn service_state_name(state: u32) -> &'static str {
+    match state {
+        SERVICE_STOPPED => "Stopped",
+        SERVICE_STOP_PENDING => "StopPending",
+        SERVICE_RUNNING => "Running",
+        _ => "Other",
+    }
+}
+
+fn windivert_service_name_is_safe(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    !name.is_empty()
+        && lower.starts_with("windivert")
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == '-')
+}
+
+#[cfg(windows)]
+fn validate_windivert_cleanup_root(runtime_root: &Path) -> Result<()> {
+    let expected = trusted_runtime_root_for_cleanup()?;
+    if normalize_windows_path_for_scope(&runtime_root.display().to_string())
+        != normalize_windows_path_for_scope(&expected.display().to_string())
+    {
+        return Err(ZapretError::Operation(format!(
+            "Отключение не завершено: refusing WinDivert cleanup for unexpected runtime root: {}",
+            runtime_root.display()
+        )));
+    }
+    if expected.exists() && path_has_reparse_component(&expected)? {
+        return Err(ZapretError::Operation(format!(
+            "Отключение не завершено: refusing WinDivert cleanup through a reparse point: {}",
+            expected.display()
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn validate_app_owned_windivert_driver_path(path_name: &str, runtime_root: &Path) -> Result<bool> {
+    validate_windivert_cleanup_root(runtime_root)?;
+    let driver_path = cleaned_windows_driver_path(path_name);
+    let Some(root) = app_owned_windivert_roots(runtime_root)?
+        .into_iter()
+        .find(|root| windivert_driver_path_is_app_owned(path_name, root))
+    else {
+        return Ok(false);
+    };
+    if path_has_reparse_component(&root)? || path_has_reparse_component(&driver_path)? {
+        return Err(ZapretError::Operation(format!(
+            "Отключение не завершено: refusing WinDivert cleanup through a reparse point: {}",
+            driver_path.display()
+        )));
+    }
+    if !driver_path.exists() {
+        return Ok(true);
+    }
+    let root =
+        fs::canonicalize(&root).map_err(|source| zapret_manager_core::io_error(&root, source))?;
+    let driver = fs::canonicalize(&driver_path)
+        .map_err(|source| zapret_manager_core::io_error(&driver_path, source))?;
+    if normalized_path_is_under(&driver, &root) {
+        Ok(true)
+    } else {
+        Err(ZapretError::Operation(format!(
+            "Отключение не завершено: refusing WinDivert cleanup outside app runtime after canonical check: {}",
+            driver.display()
+        )))
+    }
+}
+
+#[cfg(windows)]
+fn app_owned_windivert_roots(runtime_root: &Path) -> Result<Vec<PathBuf>> {
+    let mut roots = vec![runtime_root.to_path_buf()];
+    let bundled_engine_root = project_root().join("engine").join("local");
+    if bundled_engine_root.is_dir() {
+        roots.push(bundled_engine_root);
+    }
+    Ok(roots)
+}
+
+#[cfg(windows)]
+fn trusted_runtime_root_for_cleanup() -> Result<PathBuf> {
+    known_local_app_data_dir()
+        .map(|path| path.join("ZapretManager").join("engine-runtime"))
+        .ok_or_else(|| {
+            ZapretError::Operation(
+                "Отключение не завершено: Windows did not return LocalAppData known folder."
+                    .to_string(),
+            )
+        })
+}
+
+#[cfg(windows)]
+fn cleaned_windows_driver_path(value: &str) -> PathBuf {
+    PathBuf::from(
+        value
+            .trim()
+            .trim_matches('"')
+            .trim_start_matches(r"\\?\")
+            .trim_start_matches(r"\??\")
+            .replace('/', r"\"),
+    )
+}
+
+#[cfg(windows)]
+fn normalized_path_is_under(path: &Path, root: &Path) -> bool {
+    let path = normalize_windows_path_for_scope(&path.display().to_string());
+    let root = normalize_windows_path_for_scope(&root.display().to_string());
+    !root.is_empty()
+        && (path == root
+            || path
+                .strip_prefix(&root)
+                .is_some_and(|suffix| suffix.starts_with('\\')))
+}
+
+#[cfg(windows)]
+const FILE_ATTRIBUTE_REPARSE_POINT_LOCAL: u32 = 0x0000_0400;
+
+#[cfg(windows)]
+fn path_has_reparse_component(path: &Path) -> Result<bool> {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        if !current.exists() {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(&current)
+            .map_err(|source| zapret_manager_core::io_error(&current, source))?;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT_LOCAL != 0 {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(windows)]
+fn last_win32_error(context: &str) -> ZapretError {
+    ZapretError::Operation(format!("{context} failed with Win32 error {}", unsafe {
+        GetLastError()
+    }))
+}
+
+#[cfg(windows)]
+unsafe fn wide_ptr_to_string(ptr: *const u16) -> String {
+    if ptr.is_null() {
+        return String::new();
+    }
+    let mut len = 0usize;
+    while *ptr.add(len) != 0 {
+        len += 1;
+    }
+    OsString::from_wide(std::slice::from_raw_parts(ptr, len))
+        .to_string_lossy()
+        .into_owned()
 }
 
 struct NetworkCheck {
@@ -2051,24 +3025,75 @@ fn terminate_pid(pid: u32, _context: &Path) -> Result<()> {
         )
     };
     if handle.is_null() {
-        return if pid_is_running(pid) {
-            Err(ZapretError::Operation(format!(
-                "Failed to open engine PID {pid} for stop."
-            )))
-        } else {
-            Ok(())
-        };
+        return Err(last_win32_error(&format!(
+            "OpenProcess({pid}) for terminate"
+        )));
     }
     let ok = unsafe { TerminateProcess(handle, 0) };
-    unsafe {
-        CloseHandle(handle);
+    if ok == 0 {
+        let err = last_win32_error(&format!("TerminateProcess({pid})"));
+        unsafe {
+            CloseHandle(handle);
+        }
+        return Err(err);
     }
-    if ok != 0 || !pid_is_running(pid) {
-        Ok(())
-    } else {
-        Err(ZapretError::Operation(format!(
-            "Failed to stop engine PID {pid}."
-        )))
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if !pid_is_running(pid)? {
+            unsafe {
+                CloseHandle(handle);
+            }
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            unsafe {
+                CloseHandle(handle);
+            }
+            return Err(ZapretError::Operation(format!(
+                "Failed to stop engine PID {pid}: process still running."
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+#[cfg(windows)]
+fn terminate_process_handle(handle: isize, pid: u32) -> Result<()> {
+    let handle = handle as _;
+    let ok = unsafe { TerminateProcess(handle, 0) };
+    if ok == 0 {
+        let err = last_win32_error(&format!("TerminateProcess(handle pid={pid})"));
+        unsafe {
+            CloseHandle(handle);
+        }
+        return Err(err);
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let mut exit_code = 0;
+        let ok = unsafe { GetExitCodeProcess(handle, &mut exit_code) };
+        if ok == 0 {
+            let err = last_win32_error(&format!("GetExitCodeProcess(handle pid={pid})"));
+            unsafe {
+                CloseHandle(handle);
+            }
+            return Err(err);
+        }
+        if exit_code != STILL_ACTIVE as u32 {
+            unsafe {
+                CloseHandle(handle);
+            }
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            unsafe {
+                CloseHandle(handle);
+            }
+            return Err(ZapretError::Operation(format!(
+                "Failed to stop engine PID {pid}: retained process handle still active."
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(200));
     }
 }
 
@@ -2099,13 +3124,15 @@ fn cleanup_old_runtime_dirs(runtime_root: &Path, keep: &Path) {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_winws_launch, copy_dir_recursive, disable_state_after_cleanup, expand_strategy_vars,
-        extract_winws_command, powershell_single_quote, profile_launch_report, split_windows_args,
-        ServiceClient,
+        build_winws_launch, command_line_references_runtime_root, copy_dir_recursive,
+        disable_state_after_cleanup, expand_strategy_vars, extract_winws_command,
+        powershell_single_quote, profile_launch_report, runtime_root_command_prefix,
+        runtime_status_from_cleanup_state, split_windows_args, windivert_driver_path_is_app_owned,
+        windivert_report_has_running_driver, windivert_service_name_is_safe, ServiceClient,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
-    use zapret_manager_core::DiagnosticStatus;
+    use zapret_manager_core::{DiagnosticStatus, RuntimeStatus};
 
     #[test]
     fn extracts_direct_winws_command_from_strategy() {
@@ -2132,6 +3159,32 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
     }
 
     #[test]
+    fn runtime_command_line_match_requires_path_boundary() {
+        let runtime_root =
+            PathBuf::from(r"C:\Users\John Smith\AppData\Local\ZapretManager\engine-runtime");
+        assert_eq!(
+            runtime_root_command_prefix(&runtime_root),
+            r"c:\users\john smith\appdata\local\zapretmanager\engine-runtime\"
+        );
+        assert!(command_line_references_runtime_root(
+            r#""C:\Program Files\Zapret Manager\engine\local\bin\winws.exe" --hostlist="C:\Users\John Smith\AppData\Local\ZapretManager\engine-runtime\run-1\lists\list-general.txt""#,
+            &runtime_root,
+        ));
+        assert!(command_line_references_runtime_root(
+            r#""C:/Program Files/Zapret Manager/engine/local/bin/winws.exe" --hostlist="C:/Users/John Smith/AppData/Local/ZapretManager/engine-runtime/run-1/lists/list-general.txt""#,
+            &runtime_root,
+        ));
+        assert!(!command_line_references_runtime_root(
+            r#""C:\Other\winws.exe" --hostlist="C:\Users\John Smith\AppData\Local\ZapretManager\engine-runtime-old\run-1\lists\list-general.txt""#,
+            &runtime_root,
+        ));
+        assert!(!command_line_references_runtime_root(
+            r#""C:\Other\winws.exe" --hostlist="C:\Users\John Smith\AppData\Local\ZapretManager\engine-runtime2\run-1\lists\list-general.txt""#,
+            &runtime_root,
+        ));
+    }
+
+    #[test]
     fn build_launch_log_contains_preflight_details() {
         let root = test_runtime_dir("launch-log");
         let bin = root.join("bin");
@@ -2151,7 +3204,7 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         .expect("bat");
 
         let profiles = vec!["telegram".to_string(), "whatsapp".to_string()];
-        let launch = build_winws_launch(&bat, &root, "alt", &profiles).expect("launch");
+        let launch = build_winws_launch(&bat, &root, &root, "alt", &profiles).expect("launch");
         let log = fs::read_to_string(root.join("engine-launch.log")).expect("log");
 
         assert_eq!(launch.exe_path, bin.join("winws.exe"));
@@ -2196,7 +3249,7 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         .expect("bat");
 
         let profiles = vec!["discord".to_string()];
-        let launch = build_winws_launch(&bat, &root, "alt", &profiles).expect("launch");
+        let launch = build_winws_launch(&bat, &root, &root, "alt", &profiles).expect("launch");
         let hostlist_arg = format!("--hostlist={}", lists.join("list-general.txt").display());
         let fake_tls_arg = format!(
             "--dpi-desync-fake-tls={}",
@@ -2220,6 +3273,51 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
     }
 
     #[test]
+    fn build_launch_uses_bundled_binary_root_and_runtime_lists() {
+        let engine_root = test_runtime_dir("bundled engine");
+        let runtime_root = test_runtime_dir("runtime lists");
+        let engine_bin = engine_root.join("bin");
+        let runtime_lists = runtime_root.join("lists");
+        fs::create_dir_all(&engine_bin).expect("engine bin");
+        fs::create_dir_all(&runtime_lists).expect("runtime lists");
+        fs::write(engine_bin.join("winws.exe"), b"stub").expect("winws");
+        fs::write(engine_bin.join("WinDivert.dll"), b"stub").expect("dll");
+        fs::write(engine_bin.join("WinDivert64.sys"), b"stub").expect("sys");
+        fs::write(engine_bin.join("cygwin1.dll"), b"stub").expect("cygwin");
+        fs::write(runtime_lists.join("list-general.txt"), b"example.org").expect("hostlist");
+        let bat = engine_root.join("general.bat");
+        fs::write(
+            &bat,
+            r#"start "zapret: %~n0" /min "%BIN%winws.exe" --hostlist="%LISTS%list-general.txt""#,
+        )
+        .expect("bat");
+
+        let launch =
+            build_winws_launch(&bat, &runtime_root, &engine_root, "general", &[]).expect("launch");
+
+        assert_eq!(launch.exe_path, engine_bin.join("winws.exe"));
+        assert_eq!(launch.work_dir, engine_bin);
+        assert!(launch.args.iter().any(|arg| arg
+            == &format!(
+                "--hostlist={}",
+                runtime_lists.join("list-general.txt").display()
+            )));
+
+        let log = fs::read_to_string(runtime_root.join("engine-launch.log")).expect("log");
+        assert!(log.contains(&format!(
+            "exe={}",
+            engine_root.join("bin").join("winws.exe").display()
+        )));
+        assert!(log.contains(&format!(
+            "referenced_file source=hostlist path={} exists=true",
+            runtime_lists.join("list-general.txt").display()
+        )));
+
+        let _ = fs::remove_dir_all(engine_root);
+        let _ = fs::remove_dir_all(runtime_root);
+    }
+
+    #[test]
     fn visible_strategies_parse_and_preflight_with_spaced_runtime_path() {
         let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
@@ -2237,8 +3335,9 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             let root = test_runtime_dir(&format!("John Smith {strategy}"));
             copy_dir_recursive(&source, &root).expect("runtime copy");
             let profiles = vec!["discord".to_string(), "youtube".to_string()];
-            let launch = build_winws_launch(&root.join(bat_name), &root, strategy, &profiles)
-                .expect(strategy);
+            let launch =
+                build_winws_launch(&root.join(bat_name), &root, &root, strategy, &profiles)
+                    .expect(strategy);
             let log = fs::read_to_string(root.join("engine-launch.log")).expect("log");
 
             assert_eq!(launch.exe_path, root.join("bin").join("winws.exe"));
@@ -2337,6 +3436,121 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         assert_eq!(
             disable_state_after_cleanup(false, &Vec::new(), false),
             (true, Vec::new(), true)
+        );
+    }
+
+    #[test]
+    fn windivert_scope_matches_only_app_runtime_root() {
+        let runtime_root =
+            PathBuf::from(r"C:\Users\John Smith\AppData\Local\ZapretManager\engine-runtime");
+
+        assert!(windivert_driver_path_is_app_owned(
+            r#"\??\C:\Users\John Smith\AppData\Local\ZapretManager\engine-runtime\run-1784807924490\bin\WinDivert64.sys"#,
+            &runtime_root
+        ));
+        assert!(windivert_driver_path_is_app_owned(
+            r#""C:\Users\John Smith\AppData\Local\ZapretManager\engine-runtime\run-1\bin\WinDivert64.sys""#,
+            &runtime_root
+        ));
+        assert!(!windivert_driver_path_is_app_owned(
+            r"C:\Windows\System32\drivers\WinDivert64.sys",
+            &runtime_root
+        ));
+        assert!(!windivert_driver_path_is_app_owned(
+            r"C:\Users\John Smith\AppData\Local\ZapretManager\engine-runtime-old\run-1\bin\WinDivert64.sys",
+            &runtime_root
+        ));
+        assert!(!windivert_driver_path_is_app_owned(
+            r"C:\Users\John Smith\AppData\Local\ZapretManager\engine-runtime\..\Other\WinDivert64.sys",
+            &runtime_root
+        ));
+        assert!(!windivert_driver_path_is_app_owned(
+            r"C:\Users\John Smith\AppData\Local\OtherApp\engine-runtime\run-1\bin\WinDivert64.sys",
+            &runtime_root
+        ));
+    }
+
+    #[test]
+    fn windivert_running_report_forces_cleanup_error_status() {
+        assert_eq!(
+            runtime_status_from_cleanup_state(false, false, "windivert_running=false"),
+            RuntimeStatus::Disabled
+        );
+        assert_eq!(
+            runtime_status_from_cleanup_state(
+                false,
+                false,
+                r"name=WinDivert; state=Running; started=true; path=%LOCALAPPDATA%\ZapretManager\engine-runtime\run-1\bin\WinDivert64.sys"
+            ),
+            RuntimeStatus::Error
+        );
+        assert_eq!(
+            runtime_status_from_cleanup_state(
+                false,
+                true,
+                r"name=WinDivert; state=Running; started=true; path=%LOCALAPPDATA%\ZapretManager\engine-runtime\run-1\bin\WinDivert64.sys"
+            ),
+            RuntimeStatus::Running
+        );
+        assert_eq!(
+            runtime_status_from_cleanup_state(
+                false,
+                false,
+                r"app_owned_driver=true; name=WinDivert; state=Stopped; started=false; path=%LOCALAPPDATA%\ZapretManager\engine-runtime\run-1\bin\WinDivert64.sys"
+            ),
+            RuntimeStatus::Error
+        );
+        assert!(windivert_report_has_running_driver(
+            r"name=WinDivert; state=Running; started=true; path=x"
+        ));
+        assert!(!windivert_report_has_running_driver(
+            r"name=WinDivert; state=Stopped; started=false; path=x"
+        ));
+        assert_eq!(
+            runtime_status_from_cleanup_state(false, false, "windivert_check_error=access denied"),
+            RuntimeStatus::Error
+        );
+    }
+
+    #[test]
+    fn windivert_service_names_are_strictly_scoped() {
+        assert!(windivert_service_name_is_safe("WinDivert"));
+        assert!(windivert_service_name_is_safe("WinDivert14"));
+        assert!(windivert_service_name_is_safe("WinDivert_1.4-test"));
+        assert!(windivert_service_name_is_safe("WinDivert64"));
+        assert!(windivert_service_name_is_safe("windivert"));
+        assert!(windivert_service_name_is_safe("WINDIVERT64"));
+        assert!(!windivert_service_name_is_safe(""));
+        assert!(!windivert_service_name_is_safe("OtherWinDivert"));
+        assert!(!windivert_service_name_is_safe("WinDivert & calc"));
+        assert!(!windivert_service_name_is_safe("WinDivert\\evil"));
+        assert!(!windivert_service_name_is_safe("WinDivert'"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windivert_cleanup_root_validation_rejects_scope_escape() {
+        let expected = super::data_root().join("engine-runtime");
+        assert!(super::validate_windivert_cleanup_root(&expected).is_ok());
+        assert!(super::validate_windivert_cleanup_root(&expected.join("run-1")).is_err());
+        assert!(super::validate_windivert_cleanup_root(Path::new(r"C:\")).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windivert_validation_accepts_stale_missing_app_owned_driver() {
+        let expected = super::data_root().join("engine-runtime");
+        let stale_driver = expected
+            .join("run-stale")
+            .join("bin")
+            .join("WinDivert64.sys");
+        assert_eq!(
+            super::validate_app_owned_windivert_driver_path(
+                &stale_driver.display().to_string(),
+                &expected
+            )
+            .expect("stale driver path"),
+            true
         );
     }
 
@@ -2468,6 +3682,39 @@ fn has_bundled_content(path: &Path) -> bool {
         && path.join("engine").join("manifest.json").is_file()
 }
 
+#[cfg(windows)]
+fn known_local_app_data_dir() -> Option<PathBuf> {
+    unsafe {
+        let mut path = std::ptr::null_mut();
+        let result = SHGetKnownFolderPath(
+            &FOLDERID_LocalAppData,
+            KF_FLAG_DONT_VERIFY as u32,
+            std::ptr::null_mut(),
+            &mut path,
+        );
+        if result == S_OK && !path.is_null() {
+            let value = wide_ptr_to_string(path);
+            CoTaskMemFree(path.cast());
+            Some(PathBuf::from(value))
+        } else {
+            CoTaskMemFree(path.cast());
+            None
+        }
+    }
+}
+
+#[cfg(windows)]
+fn data_root() -> PathBuf {
+    known_local_app_data_dir()
+        .unwrap_or_else(|| {
+            std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .unwrap_or_else(std::env::temp_dir)
+        })
+        .join("ZapretManager")
+}
+
+#[cfg(not(windows))]
 fn data_root() -> PathBuf {
     std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
