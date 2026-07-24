@@ -109,8 +109,10 @@ Pending before the next installer:
 
 GitHub Actions:
 
-- `c2399fc`: CI #43 passed.
-- `c2399fc`: Build Windows #33 passed and uploaded the Windows artifact.
+- `2f4c8d3`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30017561146.
+- `2f4c8d3`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30017560507.
+- `ee8dce4`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30004372246.
+- `ee8dce4`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30004372233.
 
 ## Manual Test Instructions After Fresh Build
 
