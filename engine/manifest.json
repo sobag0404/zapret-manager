@@ -54,6 +54,16 @@
       "executable": true
     },
     {
+      "relative_path": "web (TELEGRAM).bat",
+      "sha256": "b7ab957c3f3e15f0d2de3f6f6c72d266c2fc53394f59deb4d855837c9469af41",
+      "executable": true
+    },
+    {
+      "relative_path": "web (WHATSAPP).bat",
+      "sha256": "e0abfb12aa1f7928e19361fafce4114e0c6c53236baa84823aa12fb539762051",
+      "executable": true
+    },
+    {
       "relative_path": "general (ALT).bat",
       "sha256": "c6dff44ea3c7159788077e31a8e35929eab1c0270fb86f5490d44b1fd049a6fc",
       "executable": true
@@ -199,8 +209,18 @@
       "executable": false
     },
     {
+      "relative_path": "lists/list-telegram-web.txt",
+      "sha256": "718a18e84b1dea8f2ac4ad8176d65c3e2111a738217a1e916dcdff06101b72a6",
+      "executable": false
+    },
+    {
       "relative_path": "lists/list-whatsapp.txt",
       "sha256": "ab4d2b17488b00b7ba9ed0e608e4ad89b5d897b2d8583edc5b36ee270ad306ef",
+      "executable": false
+    },
+    {
+      "relative_path": "lists/list-whatsapp-web.txt",
+      "sha256": "27bf3a15ce46641b372bbcc510ecd64d2321e51abfbe6de5d60d84efbecda5f8",
       "executable": false
     },
     {

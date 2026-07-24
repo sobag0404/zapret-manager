@@ -13,5 +13,7 @@ Rules:
   launch path;
 - do not run upstream installer/update scripts;
 - verify every runtime file through `engine/manifest.json`;
-- copy files to `%LOCALAPPDATA%\ZapretManager\engine-runtime` before launch;
+- launch binaries only from the bundled, manifest-verified `engine/local/bin`
+  directory; runtime under `%LOCALAPPDATA%\ZapretManager\engine-runtime`
+  stores only per-run lists and logs;
 - stop the child process on normal disable, emergency disable, and tray exit.

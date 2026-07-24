@@ -1,0 +1,4 @@
+telegram.org
+t.me
+web.telegram.org
+api.telegram.org

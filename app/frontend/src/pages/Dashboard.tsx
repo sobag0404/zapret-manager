@@ -4,11 +4,12 @@ import { StatusCard } from "../components/StatusCard";
 import { appActions, useAppStore } from "../store/appStore";
 
 const engineStrategies = [
+  { id: "telegram_web", name: "Telegram Web", status: "experimental", detail: "Только Telegram Web, отдельный hostlist" },
+  { id: "whatsapp_web", name: "WhatsApp Web", status: "experimental", detail: "Только WhatsApp Web, отдельный hostlist" },
   { id: "alt", name: "2 ALT", status: "unknown", detail: "Fake + fakedsplit" },
   { id: "alt3", name: "4 ALT3", status: "unknown", detail: "HostFakeSplit" },
   { id: "simple_fake", name: "5 Simple Fake", status: "unknown", detail: "Fake TLS без split" },
   { id: "general", name: "1 General", status: "experimental", detail: "Базовая Flowseal strategy" },
-  { id: "alt5", name: "8 ALT5", status: "experimental", detail: "Alternative UDP/TCP profile" },
   { id: "fake_tls_auto", name: "6 Fake TLS Auto", status: "experimental", detail: "Auto fake TLS" },
 ];
 
@@ -23,7 +24,7 @@ export function Dashboard() {
   const singleMessagingProfile = selectedProfiles.length === 1 && ["telegram", "whatsapp"].includes(selectedProfiles[0]) ? selectedProfiles[0] : null;
   const activeStrategy = settings?.engine_strategy ?? "general";
   const candidateLabel = singleMessagingProfile
-    ? `${singleMessagingProfile}: ${activeStrategy} (${messagingStrategyCandidates.includes(activeStrategy) ? "candidate" : "custom"})`
+    ? `${singleMessagingProfile}: ${activeStrategy} (${messagingStrategyCandidates.includes(activeStrategy) ? "кандидат" : "другая"})`
     : null;
 
   return (
@@ -65,7 +66,7 @@ export function Dashboard() {
       <section className="dashboard-section">
         <div className="section-heading">
           <span className="eyebrow">Стратегия engine</span>
-          <h2>Статус стратегий пока unknown. ALT6 скрыта как reported broken.</h2>
+          <h2>Статус стратегий пока не подтверждён. ALT6 и ALT5 не предлагаются в обычном выборе.</h2>
         </div>
         {singleMessagingProfile && (
           <div className="inline-action">
@@ -78,10 +79,12 @@ export function Dashboard() {
         <div className="strategy-grid">
           {engineStrategies.map((strategy) => {
             const selected = (settings?.engine_strategy ?? "general") === strategy.id;
+            const profileRestricted = (strategy.id === "telegram_web" && singleMessagingProfile !== "telegram")
+              || (strategy.id === "whatsapp_web" && singleMessagingProfile !== "whatsapp");
             return (
               <button
                 className={`strategy-option ${selected ? "is-selected" : ""}`}
-                disabled={running || loading.settings}
+                disabled={running || loading.settings || profileRestricted}
                 key={strategy.id}
                 onClick={() => appActions.setEngineStrategy(strategy.id)}
                 type="button"
@@ -92,7 +95,7 @@ export function Dashboard() {
             );
           })}
         </div>
-        {running && <p className="hint-line">Чтобы сменить стратегию, сначала нажмите "Выключить".</p>}
+        {running && <p className="hint-line">Чтобы сменить стратегию, сначала нажмите «Выключить».</p>}
       </section>
 
       <section className="status-grid">

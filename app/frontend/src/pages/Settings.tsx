@@ -4,11 +4,12 @@ import { AppSettings } from "../api/tauriCommands";
 import { appActions, useAppStore } from "../store/appStore";
 
 const visibleEngineStrategies = [
+  ["telegram_web", "Telegram Web · experimental"],
+  ["whatsapp_web", "WhatsApp Web · experimental"],
   ["alt", "2 ALT · unknown"],
   ["alt3", "4 ALT3 · unknown"],
   ["simple_fake", "5 Simple Fake · unknown"],
   ["general", "1 General · experimental"],
-  ["alt5", "8 ALT5 · experimental"],
   ["fake_tls_auto", "6 Fake TLS Auto · experimental"],
 ];
 
@@ -55,7 +56,7 @@ export function Settings() {
           </select>
         </label>
         <label>
-          Engine strategy
+          Стратегия engine
           <select value={draft.engine_strategy} onChange={(event) => setDraft({ ...draft, engine_strategy: event.target.value })}>
             {visibleEngineStrategies.map(([value, label]) => (
               <option key={value} value={value}>{label}</option>

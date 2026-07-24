@@ -252,9 +252,11 @@ export const appActions = {
   nextProfileStrategy: async () => {
     const profile = state.selectedProfiles.length === 1 ? state.selectedProfiles[0] : null;
     const candidates =
-      profile === "telegram" || profile === "whatsapp"
-        ? ["alt", "alt3", "simple_fake", "general", "alt5", "fake_tls_auto"]
-        : ["alt", "alt3", "simple_fake", "alt5"];
+      profile === "telegram"
+        ? ["telegram_web", "alt", "alt3", "simple_fake", "general", "fake_tls_auto"]
+        : profile === "whatsapp"
+          ? ["whatsapp_web", "alt", "alt3", "simple_fake", "general", "fake_tls_auto"]
+          : ["alt", "alt3", "simple_fake", "general"];
     const current = state.settings?.engine_strategy ?? "general";
     const currentIndex = candidates.indexOf(current);
     const engine_strategy = candidates[(currentIndex + 1) % candidates.length];

@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-23
+Last updated: 2026-07-24
 
 ## Current Goal
 
@@ -46,7 +46,9 @@ Confirmed local install mismatch:
 
 - Critical cleanup evidence from the second PC on build `ee8dce4`: after UI Disable, `winws.exe` count becomes `0`, but `Win32_SystemDriver` still shows app-owned `WinDivert` running from `%LOCALAPPDATA%\ZapretManager\engine-runtime\run-...\bin\WinDivert64.sys`. Current cleanup patch targets this leak; it still needs remote runtime confirmation on the fresh installer.
 - Remote strategy matrix on build `ee8dce4`: `general`, `alt`, `alt3`, `simple_fake`, and `fake_tls_auto` matched baseline with no improvement; `alt5` worsened representative targets to TCP 443 failure and exceeded the full probe timeout. All services remain unconfirmed.
-- Latest investigation focuses on lifecycle cleanup first, not choosing a new DPI strategy.
+- Latest remote strategy matrix was run before the cleanup fix and used only
+  general strategies. It does not validate the fresh cleanup installer or the
+  new focused Web candidates.
 - Old installed build can produce misleading logs; fresh test logs must contain `app_version`, `build_id`, `preflight`, and `argv_list`.
 - Strategy status is unknown until validated end-to-end with a live `winws.exe` process and fresh `engine-launch.log`.
 - ALT6 is reported broken and must remain hidden/disabled from normal UI/candidates.
@@ -90,6 +92,13 @@ Confirmed local install mismatch:
 - Remote testing harness is available for a separate Windows 10 PC over SSH/Tailscale. It launches the installed GUI with WebView2 CDP on loopback only through explicit `ZAPRET_MANAGER_REMOTE_TEST_CDP_PORT` handling and does not start the engine by itself.
 - Remote baseline from the second PC at 2026-07-23 14:36 MSK, without engine: DNS resolved for all tested services; TCP 443 failed for `web.telegram.org`, `telegram.org`, `web.whatsapp.com`, `www.whatsapp.com`; TCP 443 connected but HTTPS/TLS request failed for `discord.com`, `gateway.discord.gg`, `www.youtube.com`, `i.ytimg.com`; `winws.exe` was not running. This confirms direct blocking before strategy tests and is the expected improvement baseline.
 - Remote evidence copied locally outside the repo at `C:\Users\SoBag\Downloads\ZapretManager-remote-diagnostics-20260723-151142` confirms the old cleanup leak: diagnostics retained the first runtime while `WinDivert` was still running after Disable.
+- Root cause for the profile UX was confirmed from the old remote launch logs:
+  selecting Telegram or WhatsApp was logged but still launched a general
+  `general*.bat` command. Two focused experimental candidates now exist:
+  `telegram_web` and `whatsapp_web`. Each requires exactly its matching single
+  profile and uses only an HTTPS hostlist; it has not yet been remotely proven.
+- `alt5` is now deprecated alongside reported-broken `alt6`; neither appears in
+  ordinary selection or messaging candidates.
 
 ## Verified In Current Block
 
@@ -143,6 +152,8 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
 
 - Automatic strategy selection by profile health-check after lifecycle stabilization.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
+- Focused Web strategy design and its remote test gate are documented in
+  `docs/WEB_STRATEGIES.md`.
 - Start with manual `Следующая стратегия` and later `Подобрать автоматически`.
 - Health-checks only use DNS resolve, TCP connect, and HTTPS connect.
 - No user traffic inspection.

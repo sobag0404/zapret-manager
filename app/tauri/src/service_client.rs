@@ -1157,6 +1157,8 @@ impl ServiceClient {
 
 fn strategy_bat_file(strategy: &str) -> &'static str {
     match strategy {
+        "telegram_web" => "web (TELEGRAM).bat",
+        "whatsapp_web" => "web (WHATSAPP).bat",
         "alt" => "general (ALT).bat",
         "alt2" => "general (ALT2).bat",
         "alt3" => "general (ALT3).bat",
@@ -1203,6 +1205,7 @@ fn build_winws_launch(
     strategy: &str,
     selected_profiles: &[String],
 ) -> Result<WinwsLaunch> {
+    validate_strategy_profile_scope(strategy, selected_profiles)?;
     let log = runtime_dir.join("engine-launch.log");
     let strategy_source =
         fs::read_to_string(bat).map_err(|source| zapret_manager_core::io_error(bat, source))?;
@@ -1236,6 +1239,7 @@ fn build_winws_launch(
     let hostlists = collect_hostlists(&parts);
     let ipsets = collect_ipsets(&parts);
     let profile_report = profile_launch_report(selected_profiles, strategy, &hostlists, &ipsets);
+    let strategy_scope = strategy_scope(strategy);
     let preflight = validate_launch_preflight(&exe_path, &bin_dir, &parts);
     let argv_lines = format_argv_lines(&exe_path, &parts);
     let full_command = format!(
@@ -1249,16 +1253,22 @@ fn build_winws_launch(
     );
 
     let log_text = format!(
-        "Starting winws directly\napp_version={}\nbuild_id={}\nstrategy={}\nnormalized_strategy={}\nselected_profiles={}\nprofile_strategy_candidates={}\nprofile_hostlist_coverage={}\nprofile_filters_added=disabled_safe_mode\nused_hostlists={}\nused_ipsets={}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
+        "Starting winws directly\napp_version={}\nbuild_id={}\nstrategy={}\nnormalized_strategy={}\nstrategy_scope={}\nselected_profiles={}\nprofile_strategy_candidates={}\nprofile_hostlist_coverage={}\nprofile_filters_added={}\nused_hostlists={}\nused_ipsets={}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
         APP_VERSION,
         BUILD_ID,
         bat.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("strategy"),
         strategy,
+        strategy_scope,
         normalized_profiles(selected_profiles).join(","),
         profile_report.strategy_candidates,
         profile_report.hostlist_coverage,
+        if strategy_scope == "general" {
+            "disabled_safe_mode"
+        } else {
+            "web_hostlist_strategy"
+        },
         hostlists.join(","),
         ipsets.join(","),
         is_elevated(),
@@ -1547,12 +1557,15 @@ fn profile_launch_report(
             let covered_by_profile_list = lower_hostlists
                 .iter()
                 .any(|hostlist| hostlist.ends_with(&format!("list-{profile}.txt")));
+            let covered_by_web_profile_list = lower_hostlists
+                .iter()
+                .any(|hostlist| hostlist.ends_with(&format!("list-{profile}-web.txt")));
             let covered_by_ipset = profile == "telegram"
                 && lower_ipsets
                     .iter()
                     .any(|ipset| ipset.ends_with("ipset-all.txt"));
             format!(
-                "{profile}: domains={}, covered_by_list_general_user={covered_by_general_user}, covered_by_profile_list={covered_by_profile_list}, covered_by_ipset={covered_by_ipset}",
+                "{profile}: domains={}, covered_by_list_general_user={covered_by_general_user}, covered_by_profile_list={covered_by_profile_list}, covered_by_web_profile_list={covered_by_web_profile_list}, covered_by_ipset={covered_by_ipset}",
                 domains.join("|")
             )
         })
@@ -1590,9 +1603,24 @@ fn normalized_profiles(selected_profiles: &[String]) -> Vec<String> {
 
 fn profile_strategy_candidates(profile: &str, current_strategy: &str) -> Vec<String> {
     let mut candidates = match profile {
-        "telegram" | "whatsapp" => vec!["alt", "alt3", "simple_fake", "alt5", "fake_tls_auto"],
+        "telegram" => vec![
+            "telegram_web",
+            "alt",
+            "alt3",
+            "simple_fake",
+            "general",
+            "fake_tls_auto",
+        ],
+        "whatsapp" => vec![
+            "whatsapp_web",
+            "alt",
+            "alt3",
+            "simple_fake",
+            "general",
+            "fake_tls_auto",
+        ],
         "discord" | "youtube" => vec!["alt", "alt3", "simple_fake"],
-        "common" => vec!["alt", "alt3", "simple_fake", "alt5"],
+        "common" => vec!["alt", "alt3", "simple_fake", "general"],
         _ => vec!["general", "alt"],
     }
     .into_iter()
@@ -1603,6 +1631,38 @@ fn profile_strategy_candidates(profile: &str, current_strategy: &str) -> Vec<Str
         candidates.insert(0, current);
     }
     candidates
+}
+
+fn validate_strategy_profile_scope(strategy: &str, selected_profiles: &[String]) -> Result<()> {
+    let required_profile = match strategy {
+        "telegram_web" => Some("telegram"),
+        "whatsapp_web" => Some("whatsapp"),
+        _ => None,
+    };
+    let Some(required_profile) = required_profile else {
+        return Ok(());
+    };
+
+    let profiles = normalized_profiles(selected_profiles)
+        .into_iter()
+        .filter(|profile| profile != "common")
+        .collect::<Vec<_>>();
+    if profiles == [required_profile] {
+        Ok(())
+    } else {
+        Err(ZapretError::Operation(format!(
+            "Стратегия {} предназначена только для профиля {}. Выключите общий режим и выберите только этот профиль.",
+            strategy, required_profile
+        )))
+    }
+}
+
+fn strategy_scope(strategy: &str) -> &'static str {
+    match strategy {
+        "telegram_web" => "telegram_web_only",
+        "whatsapp_web" => "whatsapp_web_only",
+        _ => "general",
+    }
 }
 
 fn profile_domains(profile: &str) -> &'static [&'static str] {
@@ -1818,17 +1878,16 @@ struct EngineReadiness {
 
 fn normalized_engine_strategy(strategy: &str) -> String {
     match strategy {
-        "alt" | "alt2" | "alt3" | "alt4" | "alt5" | "alt6" | "alt7" | "alt8" | "alt9" | "alt10"
-        | "alt11" | "alt12" | "simple_fake" | "simple_fake_alt" | "simple_fake_alt2"
-        | "fake_tls_auto" | "fake_tls_auto_alt" | "fake_tls_auto_alt2" | "fake_tls_auto_alt3" => {
-            strategy.to_string()
-        }
+        "telegram_web" | "whatsapp_web" | "alt" | "alt2" | "alt3" | "alt4" | "alt5" | "alt6"
+        | "alt7" | "alt8" | "alt9" | "alt10" | "alt11" | "alt12" | "simple_fake"
+        | "simple_fake_alt" | "simple_fake_alt2" | "fake_tls_auto" | "fake_tls_auto_alt"
+        | "fake_tls_auto_alt2" | "fake_tls_auto_alt3" => strategy.to_string(),
         _ => "general".to_string(),
     }
 }
 
 fn is_deprecated_strategy(strategy: &str) -> bool {
-    matches!(strategy, "alt6")
+    matches!(strategy, "alt5" | "alt6")
 }
 
 #[cfg(windows)]
@@ -3126,8 +3185,9 @@ mod tests {
     use super::{
         build_winws_launch, command_line_references_runtime_root, copy_dir_recursive,
         disable_state_after_cleanup, expand_strategy_vars, extract_winws_command,
-        powershell_single_quote, profile_launch_report, runtime_root_command_prefix,
-        runtime_status_from_cleanup_state, split_windows_args, windivert_driver_path_is_app_owned,
+        is_deprecated_strategy, powershell_single_quote, profile_launch_report,
+        runtime_root_command_prefix, runtime_status_from_cleanup_state, split_windows_args,
+        validate_strategy_profile_scope, windivert_driver_path_is_app_owned,
         windivert_report_has_running_driver, windivert_service_name_is_safe, ServiceClient,
     };
     use std::fs;
@@ -3214,6 +3274,7 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             .any(|hostlist| hostlist.ends_with("list-general.txt")));
         assert!(log.contains("work_dir="));
         assert!(log.contains("selected_profiles=telegram,whatsapp"));
+        assert!(log.contains("strategy_scope=general"));
         assert!(log.contains("profile_strategy_candidates=telegram="));
         assert!(log.contains("profile_filters_added=disabled_safe_mode"));
         assert!(log.contains("used_hostlists="));
@@ -3331,10 +3392,16 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             ("simple_fake", "general (SIMPLE FAKE).bat"),
             ("alt5", "general (ALT5).bat"),
             ("fake_tls_auto", "general (FAKE TLS AUTO).bat"),
+            ("telegram_web", "web (TELEGRAM).bat"),
+            ("whatsapp_web", "web (WHATSAPP).bat"),
         ] {
             let root = test_runtime_dir(&format!("John Smith {strategy}"));
             copy_dir_recursive(&source, &root).expect("runtime copy");
-            let profiles = vec!["discord".to_string(), "youtube".to_string()];
+            let profiles = match strategy {
+                "telegram_web" => vec!["telegram".to_string()],
+                "whatsapp_web" => vec!["whatsapp".to_string()],
+                _ => vec!["discord".to_string(), "youtube".to_string()],
+            };
             let launch =
                 build_winws_launch(&root.join(bat_name), &root, &root, strategy, &profiles)
                     .expect(strategy);
@@ -3363,6 +3430,73 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
                 !log.contains("^!"),
                 "{strategy} still contains cmd caret escape in direct argv log"
             );
+
+            let _ = fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    fn web_only_strategies_require_their_matching_single_profile() {
+        assert!(validate_strategy_profile_scope("telegram_web", &["telegram".to_string()]).is_ok());
+        assert!(validate_strategy_profile_scope("whatsapp_web", &["whatsapp".to_string()]).is_ok());
+        assert!(
+            validate_strategy_profile_scope("telegram_web", &["whatsapp".to_string()]).is_err()
+        );
+        assert!(validate_strategy_profile_scope(
+            "whatsapp_web",
+            &["whatsapp".to_string(), "telegram".to_string()]
+        )
+        .is_err());
+        assert!(validate_strategy_profile_scope("telegram_web", &["common".to_string()]).is_err());
+    }
+
+    #[test]
+    fn known_bad_strategies_are_not_reused_from_saved_settings() {
+        assert!(is_deprecated_strategy("alt5"));
+        assert!(is_deprecated_strategy("alt6"));
+        assert!(!is_deprecated_strategy("telegram_web"));
+        assert!(!is_deprecated_strategy("alt"));
+    }
+
+    #[test]
+    fn web_only_launches_reference_only_the_matching_web_hostlist() {
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("engine")
+            .join("local");
+        for (strategy, bat_name, profile, hostlist) in [
+            (
+                "telegram_web",
+                "web (TELEGRAM).bat",
+                "telegram",
+                "list-telegram-web.txt",
+            ),
+            (
+                "whatsapp_web",
+                "web (WHATSAPP).bat",
+                "whatsapp",
+                "list-whatsapp-web.txt",
+            ),
+        ] {
+            let root = test_runtime_dir(&format!("web strategy {strategy}"));
+            copy_dir_recursive(&source, &root).expect("runtime copy");
+            let launch = build_winws_launch(
+                &root.join(bat_name),
+                &root,
+                &root,
+                strategy,
+                &[profile.to_string()],
+            )
+            .expect(strategy);
+            let expected_hostlist = root.join("lists").join(hostlist).display().to_string();
+            let log = fs::read_to_string(root.join("engine-launch.log")).expect("log");
+
+            assert_eq!(launch.hostlists, vec![expected_hostlist.clone()]);
+            assert!(launch.ipsets.is_empty());
+            assert!(log.contains(&format!("strategy_scope={profile}_web_only")));
+            assert!(log.contains("profile_filters_added=web_hostlist_strategy"));
+            assert!(log.contains(&format!("--hostlist={expected_hostlist}")));
 
             let _ = fs::remove_dir_all(root);
         }
