@@ -41,6 +41,7 @@ Confirmed local install mismatch:
 - `c2399fc ci: rebuild on attributes changes`
 - `a30f562 docs: update project context`
 - `c068e58 cleanup: remove app-owned windivert`
+- `26a9dd2 engine: add focused web strategies`
 
 ## Current Blockers
 
@@ -99,22 +100,32 @@ Confirmed local install mismatch:
   profile and uses only an HTTPS hostlist; it has not yet been remotely proven.
 - `alt5` is now deprecated alongside reported-broken `alt6`; neither appears in
   ordinary selection or messaging candidates.
+- Focused Web candidates were added in `26a9dd2`: `telegram_web` and
+  `whatsapp_web` each use only the matching HTTPS hostlist over TCP 443 and the
+  existing audited `fake,fakedsplit` primitive. They reject combined/Common
+  profile selection, do not use IP sets or UDP filters, and remain experimental
+  until remote testing proves an improvement.
 
 ## Verified In Current Block
 
-Passed locally in the current cleanup block after the latest cleanup patch:
+Passed locally for `26a9dd2` with engine execution disabled:
 
 - `CARGO_BUILD_JOBS=2 cargo fmt --all --check`
 - `CARGO_BUILD_JOBS=2 cargo test --workspace`
 - `corepack pnpm test`
 - `corepack pnpm --dir app/frontend build`
-- `CARGO_BUILD_JOBS=2 corepack pnpm tauri:build`
-- Independent read-only release-gate cleanup review: initial blockers fixed, scoped re-check returned `NO BLOCKERS`. Residual risk: Windows SCM/UAC behavior still needs remote runtime confirmation.
+- `CARGO_BUILD_JOBS=2 cargo tauri build`
+- Independent read-only Web-strategy review: scope validation, wrapper parser,
+  manifest entries, TCP/hostlist-only invariants, and the absence of new
+  binaries/services/DNS/proxy/firewall changes were checked; no scope escape
+  found.
 
-Pending before the next installer:
+Fresh local test installer for `26a9dd2`:
 
-- Fresh `target/release/bundle/nsis/ZapretManager v1.2-test.exe` must be rebuilt after the final commit hash is fixed. The exact SHA256 is reported in the task result instead of committed here, because committing it would change the build id and installer hash.
-- Protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` checked unchanged.
+- `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
+- SHA256 `F232E7947251176C34C37213D3FE9558DC2DB9AB4BAFF9B289BF96CE1705A2A5`
+- Built `2026-07-24 16:44:42` with `CARGO_BUILD_JOBS=2`.
+- Protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` remain unchanged.
 
 GitHub Actions:
 
@@ -122,10 +133,12 @@ GitHub Actions:
 - `2f4c8d3`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30017560507.
 - `ee8dce4`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30004372246.
 - `ee8dce4`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30004372233.
+- `26a9dd2`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30079062858.
+- `26a9dd2`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30079062802.
 
 ## Manual Test Instructions After Fresh Build
 
-Install the new `ZapretManager v1.2-test.exe` over the old Program Files build. Do not use logs from the old installed app.
+Install the new `ZapretManager v1.2-test.exe` over the old Program Files build. Do not use logs from the old installed app. On the isolated remote test PC, test `Telegram` alone with `Telegram Web`, then `WhatsApp` alone with `WhatsApp Web`; record the engine-off baseline before each test.
 
 After pressing Enable, if it fails, export diagnostics and send:
 
