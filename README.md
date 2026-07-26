@@ -51,13 +51,13 @@ cargo tauri dev
 Build Windows installer:
 
 ```powershell
-corepack pnpm build
-cd app/tauri
-cargo tauri build
+corepack pnpm install
+.\scripts\package.ps1
 ```
 
 The installer artifact is produced by Tauri/NSIS under
-`target/release/bundle/nsis/`.
+`target/release/bundle/nsis/`. The packaging script refuses a dirty worktree
+and embeds the checked-out Git commit in the build identity.
 
 The GUI starts normally. When the user presses `Включить`, the app launches the
 selected verified Flowseal `general*.bat` strategy with Windows UAC (`runas`).
@@ -67,9 +67,9 @@ engine first.
 
 Available engine strategies in the UI:
 
+- `Telegram Web: Phase 0` (experimental, Telegram-only)
 - `General`
 - `ALT`
-- `ALT2`
 - `ALT3`
 - `Simple Fake`
 - `Fake TLS Auto`

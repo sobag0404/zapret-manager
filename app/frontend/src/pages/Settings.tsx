@@ -4,13 +4,12 @@ import { AppSettings } from "../api/tauriCommands";
 import { appActions, useAppStore } from "../store/appStore";
 
 const visibleEngineStrategies = [
-  ["telegram_web", "Telegram Web · experimental"],
-  ["whatsapp_web", "WhatsApp Web · experimental"],
-  ["alt", "2 ALT · unknown"],
-  ["alt3", "4 ALT3 · unknown"],
-  ["simple_fake", "5 Simple Fake · unknown"],
-  ["general", "1 General · experimental"],
-  ["fake_tls_auto", "6 Fake TLS Auto · experimental"],
+  ["telegram_web_phase0", "Telegram Web: Phase 0 / experimental"],
+  ["alt", "2 ALT / unknown"],
+  ["alt3", "4 ALT3 / unknown"],
+  ["simple_fake", "5 Simple Fake / unknown"],
+  ["general", "1 General / experimental"],
+  ["fake_tls_auto", "6 Fake TLS Auto / experimental"],
 ];
 
 export function Settings() {
@@ -64,7 +63,7 @@ export function Settings() {
           </select>
         </label>
         <div className="settings-note wide-field">
-          Автостарт, ручной путь к engine и ручной путь к логам скрыты из v1.2: эти параметры останутся выключенными, пока не будут реализованы полностью.
+          Автостарт, ручной путь к engine и путь к логам скрыты из v1.2: они останутся выключенными до полной безопасной реализации.
         </div>
       </section>
     </form>

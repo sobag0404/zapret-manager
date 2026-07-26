@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-24
+Last updated: 2026-07-26
 
 ## Current Goal
 
@@ -45,7 +45,7 @@ Confirmed local install mismatch:
 
 ## Current Blockers
 
-- Critical cleanup evidence from the second PC on build `ee8dce4`: after UI Disable, `winws.exe` count becomes `0`, but `Win32_SystemDriver` still shows app-owned `WinDivert` running from `%LOCALAPPDATA%\ZapretManager\engine-runtime\run-...\bin\WinDivert64.sys`. Current cleanup patch targets this leak; it still needs remote runtime confirmation on the fresh installer.
+- Fresh remote evidence on the second PC confirms cleanup: after Disable, scoped `winws.exe=0`, app-owned WinDivert is removed, and runtime directories equal zero.
 - Remote strategy matrix on build `ee8dce4`: `general`, `alt`, `alt3`, `simple_fake`, and `fake_tls_auto` matched baseline with no improvement; `alt5` worsened representative targets to TCP 443 failure and exceeded the full probe timeout. All services remain unconfirmed.
 - Latest remote strategy matrix was run before the cleanup fix and used only
   general strategies. It does not validate the fresh cleanup installer or the
@@ -55,6 +55,8 @@ Confirmed local install mismatch:
 - ALT6 is reported broken and must remain hidden/disabled from normal UI/candidates.
 - Snapshot/revert for DNS/proxy/firewall is still not implemented; v1.2 only stops the managed engine and cleans runtime state. The app must not claim full DNS/proxy restore.
 - General Diagnostics must not claim Windows service, DNS, Internet, Discord, YouTube, Telegram, or WhatsApp are OK without a factual check. Local backend health is separate from Windows service health.
+- On 2026-07-26 the separate `telegram_web` and `whatsapp_web` candidates had the same Edge `ERR_CONNECTION_TIMED_OUT` result as engine-off control. `winws.exe` and WinDivert were active, so the hostlist-only TLS path is confirmed too late for this connection path.
+- Engine-off DNS returned Telegram `149.154.167.99` and `216.239.32.107`, WhatsApp `31.13.72.52` and `129.134.30.12`. Five-second TCP probes to ports 80/443 did not establish, while public control endpoints connected. This indicates a TCP-establishment filter but does not distinguish phase-0 DPI from route/ACL/IP blocking.
 
 ## Current Stabilization Changes
 
@@ -105,6 +107,15 @@ Confirmed local install mismatch:
   existing audited `fake,fakedsplit` primitive. They reject combined/Common
   profile selection, do not use IP sets or UDP filters, and remain experimental
   until remote testing proves an improvement.
+- The hostlist-only Web candidates are now deprecated after the recorded remote
+  failure. A single replacement, `telegram_web_phase0`, is scoped to Telegram
+  alone and uses the official Telegram CIDR list with `syndata,fake,fakedsplit`
+  during TCP establishment. No WhatsApp phase-0 candidate is bundled because
+  there is no narrow trusted static WhatsApp Web CIDR list; a broad HTTPS rule
+  could affect unrelated traffic.
+- Release packaging now refuses a dirty worktree and passes a verified Git build
+  id to Cargo. CI passes its commit id explicitly, preventing a stale `-dirty`
+  identity in a clean installer.
 
 ## Verified In Current Block
 

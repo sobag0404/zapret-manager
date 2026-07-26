@@ -1,6 +1,21 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$dirty = & git -C $repoRoot status --porcelain
+if ($LASTEXITCODE -ne 0) {
+  throw "Unable to determine Git state."
+}
+if ($dirty) {
+  throw "Refusing to package a dirty worktree. Commit or stash changes first."
+}
+
+$buildId = (& git -C $repoRoot rev-parse --short=12 HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $buildId -notmatch '^[0-9a-fA-F]{12}$') {
+  throw "Unable to determine a valid Git build id."
+}
+$env:ZAPRET_MANAGER_BUILD_ID = $buildId.ToLowerInvariant()
+
 Push-Location app/tauri
 try {
   cargo tauri build

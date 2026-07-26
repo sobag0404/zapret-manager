@@ -253,9 +253,9 @@ export const appActions = {
     const profile = state.selectedProfiles.length === 1 ? state.selectedProfiles[0] : null;
     const candidates =
       profile === "telegram"
-        ? ["telegram_web", "alt", "alt3", "simple_fake", "general", "fake_tls_auto"]
+        ? ["telegram_web_phase0", "alt", "alt3", "simple_fake", "general", "fake_tls_auto"]
         : profile === "whatsapp"
-          ? ["whatsapp_web", "alt", "alt3", "simple_fake", "general", "fake_tls_auto"]
+          ? ["alt", "alt3", "simple_fake", "general", "fake_tls_auto"]
           : ["alt", "alt3", "simple_fake", "general"];
     const current = state.settings?.engine_strategy ?? "general";
     const currentIndex = candidates.indexOf(current);

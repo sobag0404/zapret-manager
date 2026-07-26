@@ -54,6 +54,11 @@
       "executable": true
     },
     {
+      "relative_path": "web (TELEGRAM PHASE0).bat",
+      "sha256": "5046b1c73ec0943edc4b8bb45d7f02dee7285ddfc2f7994b1b6a9f76762c22d8",
+      "executable": true
+    },
+    {
       "relative_path": "web (TELEGRAM).bat",
       "sha256": "b7ab957c3f3e15f0d2de3f6f6c72d266c2fc53394f59deb4d855837c9469af41",
       "executable": true
@@ -162,6 +167,11 @@
       "relative_path": "general.bat",
       "sha256": "c4f7f5708de5323b55ea85e2ef140c43426352875593eae1c0b94bfc769a4477",
       "executable": true
+    },
+    {
+      "relative_path": "lists/ipset-telegram-phase0.txt",
+      "sha256": "3ecd072cedf72eceee6961b18a51e37f905d5ce4a656a5d24cf5fea63e6ec651",
+      "executable": false
     },
     {
       "relative_path": "lists/ipset-all.txt",

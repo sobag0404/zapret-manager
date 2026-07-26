@@ -63,6 +63,8 @@ jobs:
 
       - name: Build Windows installer
         working-directory: app/tauri
+        env:
+          ZAPRET_MANAGER_BUILD_ID: ${{ github.sha }}
         run: ..\..\node_modules\.bin\tauri.cmd build
 
       - name: Collect artifacts

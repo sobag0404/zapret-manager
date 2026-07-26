@@ -1157,6 +1157,7 @@ impl ServiceClient {
 
 fn strategy_bat_file(strategy: &str) -> &'static str {
     match strategy {
+        "telegram_web_phase0" => "web (TELEGRAM PHASE0).bat",
         "telegram_web" => "web (TELEGRAM).bat",
         "whatsapp_web" => "web (WHATSAPP).bat",
         "alt" => "general (ALT).bat",
@@ -1264,11 +1265,7 @@ fn build_winws_launch(
         normalized_profiles(selected_profiles).join(","),
         profile_report.strategy_candidates,
         profile_report.hostlist_coverage,
-        if strategy_scope == "general" {
-            "disabled_safe_mode"
-        } else {
-            "web_hostlist_strategy"
-        },
+        strategy_filter_mode(strategy_scope),
         hostlists.join(","),
         ipsets.join(","),
         is_elevated(),
@@ -1560,12 +1557,16 @@ fn profile_launch_report(
             let covered_by_web_profile_list = lower_hostlists
                 .iter()
                 .any(|hostlist| hostlist.ends_with(&format!("list-{profile}-web.txt")));
-            let covered_by_ipset = profile == "telegram"
+            let covered_by_general_ipset = profile == "telegram"
                 && lower_ipsets
                     .iter()
                     .any(|ipset| ipset.ends_with("ipset-all.txt"));
+            let covered_by_phase0_ipset = profile == "telegram"
+                && lower_ipsets
+                    .iter()
+                    .any(|ipset| ipset.ends_with("ipset-telegram-phase0.txt"));
             format!(
-                "{profile}: domains={}, covered_by_list_general_user={covered_by_general_user}, covered_by_profile_list={covered_by_profile_list}, covered_by_web_profile_list={covered_by_web_profile_list}, covered_by_ipset={covered_by_ipset}",
+                "{profile}: domains={}, covered_by_list_general_user={covered_by_general_user}, covered_by_profile_list={covered_by_profile_list}, covered_by_web_profile_list={covered_by_web_profile_list}, covered_by_general_ipset={covered_by_general_ipset}, covered_by_phase0_ipset={covered_by_phase0_ipset}",
                 domains.join("|")
             )
         })
@@ -1604,21 +1605,14 @@ fn normalized_profiles(selected_profiles: &[String]) -> Vec<String> {
 fn profile_strategy_candidates(profile: &str, current_strategy: &str) -> Vec<String> {
     let mut candidates = match profile {
         "telegram" => vec![
-            "telegram_web",
+            "telegram_web_phase0",
             "alt",
             "alt3",
             "simple_fake",
             "general",
             "fake_tls_auto",
         ],
-        "whatsapp" => vec![
-            "whatsapp_web",
-            "alt",
-            "alt3",
-            "simple_fake",
-            "general",
-            "fake_tls_auto",
-        ],
+        "whatsapp" => vec!["alt", "alt3", "simple_fake", "general", "fake_tls_auto"],
         "discord" | "youtube" => vec!["alt", "alt3", "simple_fake"],
         "common" => vec!["alt", "alt3", "simple_fake", "general"],
         _ => vec!["general", "alt"],
@@ -1635,7 +1629,7 @@ fn profile_strategy_candidates(profile: &str, current_strategy: &str) -> Vec<Str
 
 fn validate_strategy_profile_scope(strategy: &str, selected_profiles: &[String]) -> Result<()> {
     let required_profile = match strategy {
-        "telegram_web" => Some("telegram"),
+        "telegram_web" | "telegram_web_phase0" => Some("telegram"),
         "whatsapp_web" => Some("whatsapp"),
         _ => None,
     };
@@ -1659,9 +1653,18 @@ fn validate_strategy_profile_scope(strategy: &str, selected_profiles: &[String])
 
 fn strategy_scope(strategy: &str) -> &'static str {
     match strategy {
+        "telegram_web_phase0" => "telegram_web_phase0_only",
         "telegram_web" => "telegram_web_only",
         "whatsapp_web" => "whatsapp_web_only",
         _ => "general",
+    }
+}
+
+fn strategy_filter_mode(strategy_scope: &str) -> &'static str {
+    match strategy_scope {
+        "telegram_web_phase0_only" => "phase0_ipset_strategy",
+        "telegram_web_only" | "whatsapp_web_only" => "web_hostlist_strategy",
+        _ => "disabled_safe_mode",
     }
 }
 
@@ -1878,16 +1881,34 @@ struct EngineReadiness {
 
 fn normalized_engine_strategy(strategy: &str) -> String {
     match strategy {
-        "telegram_web" | "whatsapp_web" | "alt" | "alt2" | "alt3" | "alt4" | "alt5" | "alt6"
-        | "alt7" | "alt8" | "alt9" | "alt10" | "alt11" | "alt12" | "simple_fake"
-        | "simple_fake_alt" | "simple_fake_alt2" | "fake_tls_auto" | "fake_tls_auto_alt"
-        | "fake_tls_auto_alt2" | "fake_tls_auto_alt3" => strategy.to_string(),
+        "telegram_web_phase0"
+        | "telegram_web"
+        | "whatsapp_web"
+        | "alt"
+        | "alt2"
+        | "alt3"
+        | "alt4"
+        | "alt5"
+        | "alt6"
+        | "alt7"
+        | "alt8"
+        | "alt9"
+        | "alt10"
+        | "alt11"
+        | "alt12"
+        | "simple_fake"
+        | "simple_fake_alt"
+        | "simple_fake_alt2"
+        | "fake_tls_auto"
+        | "fake_tls_auto_alt"
+        | "fake_tls_auto_alt2"
+        | "fake_tls_auto_alt3" => strategy.to_string(),
         _ => "general".to_string(),
     }
 }
 
 fn is_deprecated_strategy(strategy: &str) -> bool {
-    matches!(strategy, "alt5" | "alt6")
+    matches!(strategy, "telegram_web" | "whatsapp_web" | "alt5" | "alt6")
 }
 
 #[cfg(windows)]
@@ -3392,13 +3413,14 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             ("simple_fake", "general (SIMPLE FAKE).bat"),
             ("alt5", "general (ALT5).bat"),
             ("fake_tls_auto", "general (FAKE TLS AUTO).bat"),
+            ("telegram_web_phase0", "web (TELEGRAM PHASE0).bat"),
             ("telegram_web", "web (TELEGRAM).bat"),
             ("whatsapp_web", "web (WHATSAPP).bat"),
         ] {
             let root = test_runtime_dir(&format!("John Smith {strategy}"));
             copy_dir_recursive(&source, &root).expect("runtime copy");
             let profiles = match strategy {
-                "telegram_web" => vec!["telegram".to_string()],
+                "telegram_web" | "telegram_web_phase0" => vec!["telegram".to_string()],
                 "whatsapp_web" => vec!["whatsapp".to_string()],
                 _ => vec!["discord".to_string(), "youtube".to_string()],
             };
@@ -3437,6 +3459,10 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
 
     #[test]
     fn web_only_strategies_require_their_matching_single_profile() {
+        assert!(
+            validate_strategy_profile_scope("telegram_web_phase0", &["telegram".to_string()])
+                .is_ok()
+        );
         assert!(validate_strategy_profile_scope("telegram_web", &["telegram".to_string()]).is_ok());
         assert!(validate_strategy_profile_scope("whatsapp_web", &["whatsapp".to_string()]).is_ok());
         assert!(
@@ -3448,13 +3474,19 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         )
         .is_err());
         assert!(validate_strategy_profile_scope("telegram_web", &["common".to_string()]).is_err());
+        assert!(
+            validate_strategy_profile_scope("telegram_web_phase0", &["whatsapp".to_string()])
+                .is_err()
+        );
     }
 
     #[test]
     fn known_bad_strategies_are_not_reused_from_saved_settings() {
         assert!(is_deprecated_strategy("alt5"));
         assert!(is_deprecated_strategy("alt6"));
-        assert!(!is_deprecated_strategy("telegram_web"));
+        assert!(is_deprecated_strategy("telegram_web"));
+        assert!(is_deprecated_strategy("whatsapp_web"));
+        assert!(!is_deprecated_strategy("telegram_web_phase0"));
         assert!(!is_deprecated_strategy("alt"));
     }
 
@@ -3500,6 +3532,44 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
 
             let _ = fs::remove_dir_all(root);
         }
+    }
+
+    #[test]
+    fn telegram_phase0_launch_uses_only_official_ipset_before_tls() {
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("engine")
+            .join("local");
+        let root = test_runtime_dir("telegram phase0 John Smith");
+        copy_dir_recursive(&source, &root).expect("runtime copy");
+        let launch = build_winws_launch(
+            &root.join("web (TELEGRAM PHASE0).bat"),
+            &root,
+            &root,
+            "telegram_web_phase0",
+            &["telegram".to_string()],
+        )
+        .expect("telegram phase0");
+        let expected_ipset = root
+            .join("lists")
+            .join("ipset-telegram-phase0.txt")
+            .display()
+            .to_string();
+        let log = fs::read_to_string(root.join("engine-launch.log")).expect("log");
+
+        assert!(launch.hostlists.is_empty());
+        assert_eq!(launch.ipsets, vec![expected_ipset.clone()]);
+        assert!(launch
+            .args
+            .iter()
+            .any(|arg| arg == "--dpi-desync=syndata,fake,fakedsplit"));
+        assert!(log.contains("strategy_scope=telegram_web_phase0_only"));
+        assert!(log.contains("profile_filters_added=phase0_ipset_strategy"));
+        assert!(log.contains("covered_by_phase0_ipset=true"));
+        assert!(log.contains(&format!("--ipset={expected_ipset}")));
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -3705,7 +3775,12 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         assert!(report
             .hostlist_coverage
             .contains("covered_by_profile_list=false"));
-        assert!(report.hostlist_coverage.contains("covered_by_ipset=true"));
+        assert!(report
+            .hostlist_coverage
+            .contains("covered_by_general_ipset=true"));
+        assert!(report
+            .hostlist_coverage
+            .contains("covered_by_phase0_ipset=false"));
     }
 
     fn test_runtime_dir(name: &str) -> PathBuf {

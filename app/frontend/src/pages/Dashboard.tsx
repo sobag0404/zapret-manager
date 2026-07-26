@@ -4,16 +4,20 @@ import { StatusCard } from "../components/StatusCard";
 import { appActions, useAppStore } from "../store/appStore";
 
 const engineStrategies = [
-  { id: "telegram_web", name: "Telegram Web", status: "experimental", detail: "Только Telegram Web, отдельный hostlist" },
-  { id: "whatsapp_web", name: "WhatsApp Web", status: "experimental", detail: "Только WhatsApp Web, отдельный hostlist" },
+  {
+    id: "telegram_web_phase0",
+    name: "Telegram Web: Phase 0",
+    status: "experimental",
+    detail: "Только Telegram Web и официальные IP Telegram",
+  },
   { id: "alt", name: "2 ALT", status: "unknown", detail: "Fake + fakedsplit" },
   { id: "alt3", name: "4 ALT3", status: "unknown", detail: "HostFakeSplit" },
   { id: "simple_fake", name: "5 Simple Fake", status: "unknown", detail: "Fake TLS без split" },
-  { id: "general", name: "1 General", status: "experimental", detail: "Базовая Flowseal strategy" },
-  { id: "fake_tls_auto", name: "6 Fake TLS Auto", status: "experimental", detail: "Auto fake TLS" },
+  { id: "general", name: "1 General", status: "experimental", detail: "Базовая стратегия Flowseal" },
+  { id: "fake_tls_auto", name: "6 Fake TLS Auto", status: "experimental", detail: "Автоматический TLS fake" },
 ];
 
-const messagingStrategyCandidates = engineStrategies.map((strategy) => strategy.id);
+const telegramCandidates = ["telegram_web_phase0", "alt", "alt3", "simple_fake", "general", "fake_tls_auto"];
 
 export function Dashboard() {
   const { status, profiles, selectedProfiles, diagnostics, loading, settings } = useAppStore();
@@ -21,10 +25,12 @@ export function Dashboard() {
   const warnings = diagnostics.filter((item) => item.status === "warning").length;
   const engineIssue = diagnostics.find((item) => item.id === "engine_found" && item.status !== "ok");
   const running = status?.status === "running";
-  const singleMessagingProfile = selectedProfiles.length === 1 && ["telegram", "whatsapp"].includes(selectedProfiles[0]) ? selectedProfiles[0] : null;
+  const singleMessagingProfile = selectedProfiles.length === 1 && ["telegram", "whatsapp"].includes(selectedProfiles[0])
+    ? selectedProfiles[0]
+    : null;
   const activeStrategy = settings?.engine_strategy ?? "general";
-  const candidateLabel = singleMessagingProfile
-    ? `${singleMessagingProfile}: ${activeStrategy} (${messagingStrategyCandidates.includes(activeStrategy) ? "кандидат" : "другая"})`
+  const candidateLabel = singleMessagingProfile === "telegram"
+    ? `Telegram: ${activeStrategy} (${telegramCandidates.includes(activeStrategy) ? "кандидат" : "другая"})`
     : null;
 
   return (
@@ -33,7 +39,7 @@ export function Dashboard() {
         <div>
           <span className="eyebrow">Zapret Manager</span>
           <h1>Статус: {status?.message ?? "Загрузка"}</h1>
-          <p>Локальное управление профилями через backend. Перед включением создаётся snapshot, при выключении выполняется безопасный откат.</p>
+          <p>Локальное управление профилями через backend. Перед включением создаётся snapshot; при выключении останавливается управляемый engine и очищается его runtime.</p>
         </div>
         <MainToggle status={status?.status ?? "disabled"} loading={loading.toggle} onToggle={appActions.toggleEnabled} />
       </section>
@@ -54,7 +60,7 @@ export function Dashboard() {
                   <input checked={selected} onChange={(event) => appActions.setProfileSelected(profile.id, event.target.checked)} type="checkbox" />
                   <span>
                     <strong>{profile.name}</strong>
-                    <small>{profile.status} · {profile.version} · риск {profile.risk_level}</small>
+                    <small>{profile.status} / {profile.version} / риск {profile.risk_level}</small>
                   </span>
                 </label>
               );
@@ -66,9 +72,9 @@ export function Dashboard() {
       <section className="dashboard-section">
         <div className="section-heading">
           <span className="eyebrow">Стратегия engine</span>
-          <h2>Статус стратегий пока не подтверждён. ALT6 и ALT5 не предлагаются в обычном выборе.</h2>
+          <h2>Все стратегии экспериментальные. ALT5 и ALT6 исключены из обычного выбора.</h2>
         </div>
-        {singleMessagingProfile && (
+        {singleMessagingProfile === "telegram" && (
           <div className="inline-action">
             <span>{candidateLabel}</span>
             <button className="secondary-button" disabled={running || loading.settings} onClick={appActions.nextProfileStrategy} type="button">
@@ -76,11 +82,13 @@ export function Dashboard() {
             </button>
           </div>
         )}
+        {singleMessagingProfile === "whatsapp" && (
+          <p className="hint-line">Для WhatsApp Web нет узкого проверенного IP-диапазона. Phase 0 не включается, чтобы не затронуть другой трафик.</p>
+        )}
         <div className="strategy-grid">
           {engineStrategies.map((strategy) => {
             const selected = (settings?.engine_strategy ?? "general") === strategy.id;
-            const profileRestricted = (strategy.id === "telegram_web" && singleMessagingProfile !== "telegram")
-              || (strategy.id === "whatsapp_web" && singleMessagingProfile !== "whatsapp");
+            const profileRestricted = strategy.id === "telegram_web_phase0" && singleMessagingProfile !== "telegram";
             return (
               <button
                 className={`strategy-option ${selected ? "is-selected" : ""}`}
@@ -90,7 +98,7 @@ export function Dashboard() {
                 type="button"
               >
                 <strong>{strategy.name}</strong>
-                <small>{strategy.status} · {strategy.detail}</small>
+                <small>{strategy.status} / {strategy.detail}</small>
               </button>
             );
           })}
