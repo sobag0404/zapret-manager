@@ -42,6 +42,7 @@ Confirmed local install mismatch:
 - `a30f562 docs: update project context`
 - `c068e58 cleanup: remove app-owned windivert`
 - `26a9dd2 engine: add focused web strategies`
+- `8d3791b engine: add telegram phase0 strategy`
 
 ## Current Blockers
 
@@ -68,7 +69,7 @@ Confirmed local install mismatch:
 - Launch parser tests cover all visible strategies with a runtime path containing spaces.
 - Direct launch now unescapes CMD caret escaping, including `^!`, before building argv.
 - Launch logs include build provenance: app version and build id.
-- Build id includes `-dirty` when built from uncommitted local changes; final test installer must be rebuilt after the code commit.
+- Release packaging refuses a dirty worktree and supplies the committed Git id explicitly; CI supplies its checked-out commit id. A release installer must never carry a misleading `-dirty` build id.
 - Disable/Exit cleanup keeps enabled state if scoped cleanup fails, so the next action can retry cleanup instead of incorrectly enabling.
 - Cleanup failure now reports `RuntimeStatus::Error`; the main toggle shows `Повторить отключение` and calls disable/cleanup again, including orphan-at-start cases.
 - Tray Exit closes only after successful scoped cleanup verification; otherwise the app remains open.
@@ -119,23 +120,24 @@ Confirmed local install mismatch:
 
 ## Verified In Current Block
 
-Passed locally for `26a9dd2` with engine execution disabled:
+Passed locally for `8d3791b` with engine execution disabled:
 
 - `CARGO_BUILD_JOBS=2 cargo fmt --all --check`
 - `CARGO_BUILD_JOBS=2 cargo test --workspace`
 - `corepack pnpm test`
 - `corepack pnpm --dir app/frontend build`
 - `CARGO_BUILD_JOBS=2 cargo tauri build`
-- Independent read-only Web-strategy review: scope validation, wrapper parser,
-  manifest entries, TCP/hostlist-only invariants, and the absence of new
-  binaries/services/DNS/proxy/firewall changes were checked; no scope escape
-  found.
+- Independent read-only Web-strategy review: the Phase 0 wrapper is scoped to
+  Telegram alone, uses only the official Telegram CIDRs, TCP 443, and
+  `syndata,fake,fakedsplit`; it adds no binaries, services, DNS, proxy, or
+  firewall changes. No scope escape was found.
 
-Fresh local test installer for `26a9dd2`:
+Fresh local test installer for `8d3791b`:
 
 - `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
-- SHA256 `F232E7947251176C34C37213D3FE9558DC2DB9AB4BAFF9B289BF96CE1705A2A5`
-- Built `2026-07-24 16:44:42` with `CARGO_BUILD_JOBS=2`.
+- SHA256 `2A330285A5FA2AAA3E9663C1FAE75C8DBB3C3BEE0AD4C600EFA52066A8D48B93`
+- Built `2026-07-26 11:29:12` with `CARGO_BUILD_JOBS=2`; embedded build id is
+  `8d3791bc2cfe` without a dirty suffix.
 - Protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` remain unchanged.
 
 GitHub Actions:
@@ -146,10 +148,12 @@ GitHub Actions:
 - `ee8dce4`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30004372233.
 - `26a9dd2`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30079062858.
 - `26a9dd2`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30079062802.
+- `8d3791b`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30194597186.
+- `8d3791b`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30194597207.
 
 ## Manual Test Instructions After Fresh Build
 
-Install the new `ZapretManager v1.2-test.exe` over the old Program Files build. Do not use logs from the old installed app. On the isolated remote test PC, test `Telegram` alone with `Telegram Web`, then `WhatsApp` alone with `WhatsApp Web`; record the engine-off baseline before each test.
+Install the new `ZapretManager v1.2-test.exe` over the old Program Files build. Do not use logs from the old installed app. On the isolated remote test PC, record the engine-off baseline, then test `Telegram` alone with `Telegram Web: Phase 0`. Record the IP that Edge actually chooses: `216.239.32.107` is intentionally outside the official Telegram CIDRs and is not covered by this narrow candidate. Keep WhatsApp as an engine-off diagnostic control; no broad unverified Meta IP range is bundled.
 
 After pressing Enable, if it fails, export diagnostics and send:
 
