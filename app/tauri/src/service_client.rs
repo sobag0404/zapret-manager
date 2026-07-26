@@ -1,12 +1,13 @@
+use std::collections::BTreeSet;
 use std::ffi::OsStr;
 #[cfg(windows)]
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
 #[cfg(windows)]
@@ -62,6 +63,9 @@ const WAIT_FAILED: u32 = 0xFFFF_FFFF;
 const CLEANUP_WAIT_MS: u32 = 60_000;
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BUILD_ID: &str = env!("ZAPRET_MANAGER_BUILD_ID");
+const RUNTIME_IPSET_MAX_IPS_PER_DOMAIN: usize = 8;
+const RUNTIME_IPSET_MAX_TOTAL_IPS: usize = 16;
+const RUNTIME_DNS_RESOLVE_TIMEOUT: Duration = Duration::from_secs(5);
 pub const WINDIVERT_CLEANUP_ARG: &str = "--zapret-manager-cleanup-windivert";
 
 static STATE: OnceLock<Mutex<ServiceClient>> = OnceLock::new();
@@ -1046,7 +1050,28 @@ impl ServiceClient {
         let strategy = normalized_engine_strategy(&self.settings.engine_strategy);
         let engine_root = self.content_root.join("engine").join("local");
         let bat = engine_root.join(strategy_bat_file(&strategy));
-        let launch = build_winws_launch(&bat, runtime_dir, &engine_root, &strategy, profiles)?;
+        let runtime_ipset = match prepare_runtime_profile_ipset(&strategy, profiles, runtime_dir) {
+            Ok(report) => report,
+            Err(err) => {
+                let log_path = runtime_dir.join("engine-launch.log");
+                let _ = fs::write(
+                    &log_path,
+                    format!(
+                        "app_version={APP_VERSION}\nbuild_id={BUILD_ID}\nstrategy={strategy}\nselected_profiles={}\nruntime_dns_prepare_failed=true\nruntime_dns_error={err}\n",
+                        normalized_profiles(profiles).join(",")
+                    ),
+                );
+                return Err(err);
+            }
+        };
+        let launch = build_winws_launch(
+            &bat,
+            runtime_dir,
+            &engine_root,
+            &strategy,
+            profiles,
+            runtime_ipset.as_ref(),
+        )?;
         self.log_debug(
             "info",
             "engine_start_winws_direct",
@@ -1158,6 +1183,10 @@ impl ServiceClient {
 fn strategy_bat_file(strategy: &str) -> &'static str {
     match strategy {
         "telegram_web_phase0" => "web (TELEGRAM PHASE0).bat",
+        "telegram_web_runtime_syndata" => "web (TELEGRAM RUNTIME SYNDATA).bat",
+        "telegram_web_runtime_wssize" => "web (TELEGRAM RUNTIME WSSIZE).bat",
+        "whatsapp_web_runtime_syndata" => "web (WHATSAPP RUNTIME SYNDATA).bat",
+        "whatsapp_web_runtime_wssize" => "web (WHATSAPP RUNTIME WSSIZE).bat",
         "telegram_web" => "web (TELEGRAM).bat",
         "whatsapp_web" => "web (WHATSAPP).bat",
         "alt" => "general (ALT).bat",
@@ -1193,10 +1222,198 @@ struct WinwsLaunch {
     ipsets: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+struct RuntimeProfileIpset {
+    profile: String,
+    path: PathBuf,
+    domains: Vec<String>,
+    ips: Vec<IpAddr>,
+}
+
 struct LaunchPreflight {
     ok: bool,
     report: String,
     error: Option<String>,
+}
+
+fn runtime_ipset_profile(strategy: &str) -> Option<&'static str> {
+    match strategy {
+        "telegram_web_runtime_syndata" | "telegram_web_runtime_wssize" => Some("telegram"),
+        "whatsapp_web_runtime_syndata" | "whatsapp_web_runtime_wssize" => Some("whatsapp"),
+        _ => None,
+    }
+}
+
+fn runtime_ipset_file_name(profile: &str) -> Option<&'static str> {
+    match profile {
+        "telegram" => Some("ipset-telegram-web-runtime.txt"),
+        "whatsapp" => Some("ipset-whatsapp-web-runtime.txt"),
+        _ => None,
+    }
+}
+
+fn runtime_web_domains(profile: &str) -> Option<&'static [&'static str]> {
+    match profile {
+        "telegram" => Some(&["web.telegram.org", "telegram.org"]),
+        "whatsapp" => Some(&["web.whatsapp.com", "www.whatsapp.com"]),
+        _ => None,
+    }
+}
+
+fn prepare_runtime_profile_ipset(
+    strategy: &str,
+    selected_profiles: &[String],
+    runtime_dir: &Path,
+) -> Result<Option<RuntimeProfileIpset>> {
+    let Some(profile) = runtime_ipset_profile(strategy) else {
+        return Ok(None);
+    };
+    validate_strategy_profile_scope(strategy, selected_profiles)?;
+    let domains = runtime_web_domains(profile).ok_or_else(|| {
+        ZapretError::Operation(format!(
+            "No trusted runtime DNS domain set for profile {profile}"
+        ))
+    })?;
+    let answers = domains
+        .iter()
+        .map(|domain| {
+            let ips = resolve_runtime_dns_domain(domain)?;
+            Ok(((*domain).to_string(), ips))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    write_runtime_profile_ipset(profile, runtime_dir, &answers).map(Some)
+}
+
+fn resolve_runtime_dns_domain(domain: &str) -> Result<Vec<IpAddr>> {
+    let domain = domain.to_string();
+    let worker_domain = domain.clone();
+    let (sender, receiver) = mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let result = (worker_domain.as_str(), 443)
+            .to_socket_addrs()
+            .map(|addresses| addresses.map(|address| address.ip()).collect::<Vec<_>>())
+            .map_err(|source| source.to_string());
+        let _ = sender.send(result);
+    });
+    receiver
+        .recv_timeout(RUNTIME_DNS_RESOLVE_TIMEOUT)
+        .map_err(|_| {
+            ZapretError::Operation(format!(
+                "Runtime DNS resolve timed out for {domain}; the diagnostic strategy was not started."
+            ))
+        })?
+        .map_err(|source| {
+            ZapretError::Operation(format!(
+                "Runtime DNS resolve failed for {domain}: {source}. The diagnostic strategy was not started."
+            ))
+        })
+}
+
+fn write_runtime_profile_ipset(
+    profile: &str,
+    runtime_dir: &Path,
+    answers: &[(String, Vec<IpAddr>)],
+) -> Result<RuntimeProfileIpset> {
+    let domains = runtime_web_domains(profile).ok_or_else(|| {
+        ZapretError::Operation(format!(
+            "No trusted runtime DNS domain set for profile {profile}"
+        ))
+    })?;
+    let ips = normalize_runtime_dns_answers(domains, answers)?;
+    let file_name = runtime_ipset_file_name(profile).ok_or_else(|| {
+        ZapretError::Operation(format!("No runtime IP set filename for profile {profile}"))
+    })?;
+    let path = runtime_dir.join("lists").join(file_name);
+    let content = format!(
+        "# Runtime-only IP set. Generated from the system resolver immediately before launch.\n# No resolver TTL is available through the standard Windows resolver; this file is removed on Disable.\n{}\n",
+        ips.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n")
+    );
+    fs::write(&path, content).map_err(|source| zapret_manager_core::io_error(&path, source))?;
+    Ok(RuntimeProfileIpset {
+        profile: profile.to_string(),
+        path,
+        domains: domains.iter().map(|domain| (*domain).to_string()).collect(),
+        ips,
+    })
+}
+
+fn normalize_runtime_dns_answers(
+    expected_domains: &[&str],
+    answers: &[(String, Vec<IpAddr>)],
+) -> Result<Vec<IpAddr>> {
+    if expected_domains.is_empty() || expected_domains.len() > 4 {
+        return Err(ZapretError::Operation(
+            "Runtime DNS profile has an invalid domain scope.".to_string(),
+        ));
+    }
+    if answers.len() != expected_domains.len() {
+        return Err(ZapretError::Operation(
+            "Runtime DNS answer count does not match the trusted profile scope.".to_string(),
+        ));
+    }
+
+    let mut all_ips = BTreeSet::new();
+    for expected_domain in expected_domains {
+        let matching = answers
+            .iter()
+            .filter(|(domain, _)| domain.eq_ignore_ascii_case(expected_domain))
+            .collect::<Vec<_>>();
+        if matching.len() != 1 {
+            return Err(ZapretError::Operation(format!(
+                "Runtime DNS answer scope is invalid for {expected_domain}."
+            )));
+        }
+        let ips = &matching[0].1;
+        if ips.is_empty() || ips.len() > RUNTIME_IPSET_MAX_IPS_PER_DOMAIN {
+            return Err(ZapretError::Operation(format!(
+                "Runtime DNS answer count for {expected_domain} is outside the safe limit."
+            )));
+        }
+        for ip in ips {
+            if !is_public_runtime_ip(*ip) {
+                return Err(ZapretError::Operation(format!(
+                    "Runtime DNS answer for {expected_domain} contains an unsafe address: {ip}."
+                )));
+            }
+            all_ips.insert(*ip);
+        }
+    }
+    if all_ips.is_empty() || all_ips.len() > RUNTIME_IPSET_MAX_TOTAL_IPS {
+        return Err(ZapretError::Operation(
+            "Runtime DNS IP set is empty or exceeds the safe limit.".to_string(),
+        ));
+    }
+    Ok(all_ips.into_iter().collect())
+}
+
+fn is_public_runtime_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ipv4) => {
+            let [a, b, c, _] = ipv4.octets();
+            !(ipv4.is_unspecified()
+                || ipv4.is_loopback()
+                || ipv4.is_private()
+                || ipv4.is_link_local()
+                || ipv4.is_multicast()
+                || ipv4.is_broadcast()
+                || a == 0
+                || (a == 100 && (64..=127).contains(&b))
+                || (a == 192 && b == 0 && c == 0)
+                || (a == 192 && b == 0 && c == 2)
+                || (a == 198 && (b == 18 || b == 19))
+                || (a == 198 && b == 51 && c == 100)
+                || (a == 203 && b == 0 && c == 113))
+        }
+        IpAddr::V6(ipv6) => {
+            let segments = ipv6.segments();
+            !(ipv6.is_unspecified()
+                || ipv6.is_loopback()
+                || ipv6.is_multicast()
+                || (segments[0] & 0xfe00) == 0xfc00
+                || (segments[0] & 0xffc0) == 0xfe80
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8))
+        }
+    }
 }
 
 fn build_winws_launch(
@@ -1205,6 +1422,7 @@ fn build_winws_launch(
     engine_root: &Path,
     strategy: &str,
     selected_profiles: &[String],
+    runtime_ipset: Option<&RuntimeProfileIpset>,
 ) -> Result<WinwsLaunch> {
     validate_strategy_profile_scope(strategy, selected_profiles)?;
     let log = runtime_dir.join("engine-launch.log");
@@ -1253,8 +1471,18 @@ fn build_winws_launch(
             .join(" ")
     );
 
+    let runtime_dns_report = runtime_ipset.map_or_else(
+        || "runtime_dns_profile=none\nruntime_dns_ttl=not_applicable\nruntime_dns_lifetime=not_applicable".to_string(),
+        |report| format!(
+            "runtime_dns_profile={}\nruntime_dns_domains={}\nruntime_dns_accepted_ips={}\nruntime_dns_ipset={}\nruntime_dns_ttl=system_resolver_ttl_unavailable\nruntime_dns_lifetime=run_only\nruntime_dns_scope=selected_profile_tcp_443_only",
+            report.profile,
+            report.domains.join(","),
+            report.ips.iter().map(ToString::to_string).collect::<Vec<_>>().join(","),
+            report.path.display()
+        ),
+    );
     let log_text = format!(
-        "Starting winws directly\napp_version={}\nbuild_id={}\nstrategy={}\nnormalized_strategy={}\nstrategy_scope={}\nselected_profiles={}\nprofile_strategy_candidates={}\nprofile_hostlist_coverage={}\nprofile_filters_added={}\nused_hostlists={}\nused_ipsets={}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
+        "Starting winws directly\napp_version={}\nbuild_id={}\nstrategy={}\nnormalized_strategy={}\nstrategy_scope={}\nselected_profiles={}\nprofile_strategy_candidates={}\nprofile_hostlist_coverage={}\nprofile_filters_added={}\nused_hostlists={}\nused_ipsets={}\n{}\nadmin={}\nwork_dir={}\nexe={}\nexe_exists={}\nwindivert_dll={}\nwindivert_sys={}\nargv={}\ncommand={}\nstdout_stderr=elevated direct spawn is captured below; UAC runas cannot redirect stdout/stderr\n\n",
         APP_VERSION,
         BUILD_ID,
         bat.file_name()
@@ -1268,6 +1496,7 @@ fn build_winws_launch(
         strategy_filter_mode(strategy_scope),
         hostlists.join(","),
         ipsets.join(","),
+        runtime_dns_report,
         is_elevated(),
         bin_dir.display(),
         exe_path.display(),
@@ -1565,8 +1794,11 @@ fn profile_launch_report(
                 && lower_ipsets
                     .iter()
                     .any(|ipset| ipset.ends_with("ipset-telegram-phase0.txt"));
+            let covered_by_runtime_ipset = lower_ipsets.iter().any(|ipset| {
+                ipset.ends_with(&format!("ipset-{profile}-web-runtime.txt"))
+            });
             format!(
-                "{profile}: domains={}, covered_by_list_general_user={covered_by_general_user}, covered_by_profile_list={covered_by_profile_list}, covered_by_web_profile_list={covered_by_web_profile_list}, covered_by_general_ipset={covered_by_general_ipset}, covered_by_phase0_ipset={covered_by_phase0_ipset}",
+                "{profile}: domains={}, covered_by_list_general_user={covered_by_general_user}, covered_by_profile_list={covered_by_profile_list}, covered_by_web_profile_list={covered_by_web_profile_list}, covered_by_general_ipset={covered_by_general_ipset}, covered_by_phase0_ipset={covered_by_phase0_ipset}, covered_by_runtime_ipset={covered_by_runtime_ipset}",
                 domains.join("|")
             )
         })
@@ -1605,14 +1837,23 @@ fn normalized_profiles(selected_profiles: &[String]) -> Vec<String> {
 fn profile_strategy_candidates(profile: &str, current_strategy: &str) -> Vec<String> {
     let mut candidates = match profile {
         "telegram" => vec![
-            "telegram_web_phase0",
+            "telegram_web_runtime_syndata",
+            "telegram_web_runtime_wssize",
             "alt",
             "alt3",
             "simple_fake",
             "general",
             "fake_tls_auto",
         ],
-        "whatsapp" => vec!["alt", "alt3", "simple_fake", "general", "fake_tls_auto"],
+        "whatsapp" => vec![
+            "whatsapp_web_runtime_syndata",
+            "whatsapp_web_runtime_wssize",
+            "alt",
+            "alt3",
+            "simple_fake",
+            "general",
+            "fake_tls_auto",
+        ],
         "discord" | "youtube" => vec!["alt", "alt3", "simple_fake"],
         "common" => vec!["alt", "alt3", "simple_fake", "general"],
         _ => vec!["general", "alt"],
@@ -1629,8 +1870,13 @@ fn profile_strategy_candidates(profile: &str, current_strategy: &str) -> Vec<Str
 
 fn validate_strategy_profile_scope(strategy: &str, selected_profiles: &[String]) -> Result<()> {
     let required_profile = match strategy {
-        "telegram_web" | "telegram_web_phase0" => Some("telegram"),
-        "whatsapp_web" => Some("whatsapp"),
+        "telegram_web"
+        | "telegram_web_phase0"
+        | "telegram_web_runtime_syndata"
+        | "telegram_web_runtime_wssize" => Some("telegram"),
+        "whatsapp_web" | "whatsapp_web_runtime_syndata" | "whatsapp_web_runtime_wssize" => {
+            Some("whatsapp")
+        }
         _ => None,
     };
     let Some(required_profile) = required_profile else {
@@ -1654,14 +1900,22 @@ fn validate_strategy_profile_scope(strategy: &str, selected_profiles: &[String])
 fn strategy_scope(strategy: &str) -> &'static str {
     match strategy {
         "telegram_web_phase0" => "telegram_web_phase0_only",
+        "telegram_web_runtime_syndata" => "telegram_web_runtime_syndata_only",
+        "telegram_web_runtime_wssize" => "telegram_web_runtime_wssize_only",
         "telegram_web" => "telegram_web_only",
         "whatsapp_web" => "whatsapp_web_only",
+        "whatsapp_web_runtime_syndata" => "whatsapp_web_runtime_syndata_only",
+        "whatsapp_web_runtime_wssize" => "whatsapp_web_runtime_wssize_only",
         _ => "general",
     }
 }
 
 fn strategy_filter_mode(strategy_scope: &str) -> &'static str {
     match strategy_scope {
+        "telegram_web_runtime_syndata_only" => "runtime_dns_ipset_syndata_strategy",
+        "telegram_web_runtime_wssize_only" => "runtime_dns_ipset_wssize_strategy",
+        "whatsapp_web_runtime_syndata_only" => "runtime_dns_ipset_syndata_strategy",
+        "whatsapp_web_runtime_wssize_only" => "runtime_dns_ipset_wssize_strategy",
         "telegram_web_phase0_only" => "phase0_ipset_strategy",
         "telegram_web_only" | "whatsapp_web_only" => "web_hostlist_strategy",
         _ => "disabled_safe_mode",
@@ -1881,7 +2135,11 @@ struct EngineReadiness {
 
 fn normalized_engine_strategy(strategy: &str) -> String {
     match strategy {
-        "telegram_web_phase0"
+        "telegram_web_runtime_syndata"
+        | "telegram_web_runtime_wssize"
+        | "whatsapp_web_runtime_syndata"
+        | "whatsapp_web_runtime_wssize"
+        | "telegram_web_phase0"
         | "telegram_web"
         | "whatsapp_web"
         | "alt"
@@ -1908,7 +2166,10 @@ fn normalized_engine_strategy(strategy: &str) -> String {
 }
 
 fn is_deprecated_strategy(strategy: &str) -> bool {
-    matches!(strategy, "telegram_web" | "whatsapp_web" | "alt5" | "alt6")
+    matches!(
+        strategy,
+        "telegram_web" | "whatsapp_web" | "telegram_web_phase0" | "alt5" | "alt6"
+    )
 }
 
 #[cfg(windows)]
@@ -3206,10 +3467,11 @@ mod tests {
     use super::{
         build_winws_launch, command_line_references_runtime_root, copy_dir_recursive,
         disable_state_after_cleanup, expand_strategy_vars, extract_winws_command,
-        is_deprecated_strategy, powershell_single_quote, profile_launch_report,
-        runtime_root_command_prefix, runtime_status_from_cleanup_state, split_windows_args,
-        validate_strategy_profile_scope, windivert_driver_path_is_app_owned,
-        windivert_report_has_running_driver, windivert_service_name_is_safe, ServiceClient,
+        is_deprecated_strategy, normalize_runtime_dns_answers, powershell_single_quote,
+        profile_launch_report, runtime_root_command_prefix, runtime_status_from_cleanup_state,
+        split_windows_args, validate_strategy_profile_scope, windivert_driver_path_is_app_owned,
+        windivert_report_has_running_driver, windivert_service_name_is_safe,
+        write_runtime_profile_ipset, ServiceClient,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -3285,7 +3547,8 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         .expect("bat");
 
         let profiles = vec!["telegram".to_string(), "whatsapp".to_string()];
-        let launch = build_winws_launch(&bat, &root, &root, "alt", &profiles).expect("launch");
+        let launch =
+            build_winws_launch(&bat, &root, &root, "alt", &profiles, None).expect("launch");
         let log = fs::read_to_string(root.join("engine-launch.log")).expect("log");
 
         assert_eq!(launch.exe_path, bin.join("winws.exe"));
@@ -3331,7 +3594,8 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         .expect("bat");
 
         let profiles = vec!["discord".to_string()];
-        let launch = build_winws_launch(&bat, &root, &root, "alt", &profiles).expect("launch");
+        let launch =
+            build_winws_launch(&bat, &root, &root, "alt", &profiles, None).expect("launch");
         let hostlist_arg = format!("--hostlist={}", lists.join("list-general.txt").display());
         let fake_tls_arg = format!(
             "--dpi-desync-fake-tls={}",
@@ -3374,8 +3638,8 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         )
         .expect("bat");
 
-        let launch =
-            build_winws_launch(&bat, &runtime_root, &engine_root, "general", &[]).expect("launch");
+        let launch = build_winws_launch(&bat, &runtime_root, &engine_root, "general", &[], None)
+            .expect("launch");
 
         assert_eq!(launch.exe_path, engine_bin.join("winws.exe"));
         assert_eq!(launch.work_dir, engine_bin);
@@ -3411,22 +3675,81 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             ("alt", "general (ALT).bat"),
             ("alt3", "general (ALT3).bat"),
             ("simple_fake", "general (SIMPLE FAKE).bat"),
-            ("alt5", "general (ALT5).bat"),
             ("fake_tls_auto", "general (FAKE TLS AUTO).bat"),
-            ("telegram_web_phase0", "web (TELEGRAM PHASE0).bat"),
-            ("telegram_web", "web (TELEGRAM).bat"),
-            ("whatsapp_web", "web (WHATSAPP).bat"),
+            (
+                "telegram_web_runtime_syndata",
+                "web (TELEGRAM RUNTIME SYNDATA).bat",
+            ),
+            (
+                "telegram_web_runtime_wssize",
+                "web (TELEGRAM RUNTIME WSSIZE).bat",
+            ),
+            (
+                "whatsapp_web_runtime_syndata",
+                "web (WHATSAPP RUNTIME SYNDATA).bat",
+            ),
+            (
+                "whatsapp_web_runtime_wssize",
+                "web (WHATSAPP RUNTIME WSSIZE).bat",
+            ),
         ] {
             let root = test_runtime_dir(&format!("John Smith {strategy}"));
             copy_dir_recursive(&source, &root).expect("runtime copy");
             let profiles = match strategy {
-                "telegram_web" | "telegram_web_phase0" => vec!["telegram".to_string()],
-                "whatsapp_web" => vec!["whatsapp".to_string()],
+                "telegram_web_runtime_syndata" | "telegram_web_runtime_wssize" => {
+                    vec!["telegram".to_string()]
+                }
+                "whatsapp_web_runtime_syndata" | "whatsapp_web_runtime_wssize" => {
+                    vec!["whatsapp".to_string()]
+                }
                 _ => vec!["discord".to_string(), "youtube".to_string()],
             };
-            let launch =
-                build_winws_launch(&root.join(bat_name), &root, &root, strategy, &profiles)
-                    .expect(strategy);
+            let runtime_ipset = match strategy {
+                "telegram_web_runtime_syndata" | "telegram_web_runtime_wssize" => Some(
+                    write_runtime_profile_ipset(
+                        "telegram",
+                        &root,
+                        &[
+                            (
+                                "web.telegram.org".to_string(),
+                                vec!["149.154.167.99".parse().expect("ip")],
+                            ),
+                            (
+                                "telegram.org".to_string(),
+                                vec!["216.239.32.107".parse().expect("ip")],
+                            ),
+                        ],
+                    )
+                    .expect("telegram runtime ipset"),
+                ),
+                "whatsapp_web_runtime_syndata" | "whatsapp_web_runtime_wssize" => Some(
+                    write_runtime_profile_ipset(
+                        "whatsapp",
+                        &root,
+                        &[
+                            (
+                                "web.whatsapp.com".to_string(),
+                                vec!["31.13.72.52".parse().expect("ip")],
+                            ),
+                            (
+                                "www.whatsapp.com".to_string(),
+                                vec!["129.134.30.12".parse().expect("ip")],
+                            ),
+                        ],
+                    )
+                    .expect("whatsapp runtime ipset"),
+                ),
+                _ => None,
+            };
+            let launch = build_winws_launch(
+                &root.join(bat_name),
+                &root,
+                &root,
+                strategy,
+                &profiles,
+                runtime_ipset.as_ref(),
+            )
+            .expect(strategy);
             let log = fs::read_to_string(root.join("engine-launch.log")).expect("log");
 
             assert_eq!(launch.exe_path, root.join("bin").join("winws.exe"));
@@ -3459,25 +3782,41 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
 
     #[test]
     fn web_only_strategies_require_their_matching_single_profile() {
-        assert!(
-            validate_strategy_profile_scope("telegram_web_phase0", &["telegram".to_string()])
-                .is_ok()
-        );
-        assert!(validate_strategy_profile_scope("telegram_web", &["telegram".to_string()]).is_ok());
-        assert!(validate_strategy_profile_scope("whatsapp_web", &["whatsapp".to_string()]).is_ok());
-        assert!(
-            validate_strategy_profile_scope("telegram_web", &["whatsapp".to_string()]).is_err()
-        );
         assert!(validate_strategy_profile_scope(
-            "whatsapp_web",
+            "telegram_web_runtime_syndata",
+            &["telegram".to_string()]
+        )
+        .is_ok());
+        assert!(validate_strategy_profile_scope(
+            "telegram_web_runtime_wssize",
+            &["telegram".to_string()]
+        )
+        .is_ok());
+        assert!(validate_strategy_profile_scope(
+            "whatsapp_web_runtime_syndata",
+            &["whatsapp".to_string()]
+        )
+        .is_ok());
+        assert!(validate_strategy_profile_scope(
+            "telegram_web_runtime_syndata",
+            &["whatsapp".to_string()]
+        )
+        .is_err());
+        assert!(validate_strategy_profile_scope(
+            "whatsapp_web_runtime_wssize",
             &["whatsapp".to_string(), "telegram".to_string()]
         )
         .is_err());
-        assert!(validate_strategy_profile_scope("telegram_web", &["common".to_string()]).is_err());
-        assert!(
-            validate_strategy_profile_scope("telegram_web_phase0", &["whatsapp".to_string()])
-                .is_err()
-        );
+        assert!(validate_strategy_profile_scope(
+            "telegram_web_runtime_wssize",
+            &["common".to_string()]
+        )
+        .is_err());
+        assert!(validate_strategy_profile_scope(
+            "telegram_web_runtime_syndata",
+            &["whatsapp".to_string()]
+        )
+        .is_err());
     }
 
     #[test]
@@ -3486,7 +3825,9 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         assert!(is_deprecated_strategy("alt6"));
         assert!(is_deprecated_strategy("telegram_web"));
         assert!(is_deprecated_strategy("whatsapp_web"));
-        assert!(!is_deprecated_strategy("telegram_web_phase0"));
+        assert!(is_deprecated_strategy("telegram_web_phase0"));
+        assert!(!is_deprecated_strategy("telegram_web_runtime_syndata"));
+        assert!(!is_deprecated_strategy("whatsapp_web_runtime_wssize"));
         assert!(!is_deprecated_strategy("alt"));
     }
 
@@ -3519,6 +3860,7 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
                 &root,
                 strategy,
                 &[profile.to_string()],
+                None,
             )
             .expect(strategy);
             let expected_hostlist = root.join("lists").join(hostlist).display().to_string();
@@ -3549,6 +3891,7 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             &root,
             "telegram_web_phase0",
             &["telegram".to_string()],
+            None,
         )
         .expect("telegram phase0");
         let expected_ipset = root
@@ -3567,6 +3910,119 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         assert!(log.contains("strategy_scope=telegram_web_phase0_only"));
         assert!(log.contains("profile_filters_added=phase0_ipset_strategy"));
         assert!(log.contains("covered_by_phase0_ipset=true"));
+        assert!(log.contains(&format!("--ipset={expected_ipset}")));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn runtime_dns_answers_are_deduplicated_bounded_and_fail_closed() {
+        let accepted = normalize_runtime_dns_answers(
+            &["web.telegram.org", "telegram.org"],
+            &[
+                (
+                    "web.telegram.org".to_string(),
+                    vec![
+                        "149.154.167.99".parse().expect("ip"),
+                        "216.239.32.107".parse().expect("ip"),
+                    ],
+                ),
+                (
+                    "telegram.org".to_string(),
+                    vec!["149.154.167.99".parse().expect("ip")],
+                ),
+            ],
+        )
+        .expect("accepted runtime answers");
+        assert_eq!(accepted.len(), 2);
+
+        assert!(normalize_runtime_dns_answers(
+            &["web.telegram.org", "telegram.org"],
+            &[
+                (
+                    "web.telegram.org".to_string(),
+                    vec!["127.0.0.1".parse().expect("ip")]
+                ),
+                (
+                    "telegram.org".to_string(),
+                    vec!["149.154.167.99".parse().expect("ip")]
+                ),
+            ],
+        )
+        .is_err());
+        assert!(normalize_runtime_dns_answers(
+            &["web.telegram.org", "telegram.org"],
+            &[(
+                "web.telegram.org".to_string(),
+                vec!["149.154.167.99".parse().expect("ip")]
+            )],
+        )
+        .is_err());
+        let too_many = (1..=9)
+            .map(|octet| format!("8.8.8.{octet}").parse().expect("ip"))
+            .collect::<Vec<_>>();
+        assert!(normalize_runtime_dns_answers(
+            &["web.telegram.org", "telegram.org"],
+            &[
+                ("web.telegram.org".to_string(), too_many),
+                (
+                    "telegram.org".to_string(),
+                    vec!["149.154.167.99".parse().expect("ip")]
+                ),
+            ],
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn runtime_dns_ipset_launch_uses_only_generated_profile_addresses() {
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("engine")
+            .join("local");
+        let root = test_runtime_dir("telegram runtime dns John Smith");
+        copy_dir_recursive(&source, &root).expect("runtime copy");
+        let runtime_ipset = write_runtime_profile_ipset(
+            "telegram",
+            &root,
+            &[
+                (
+                    "web.telegram.org".to_string(),
+                    vec!["149.154.167.99".parse().expect("ip")],
+                ),
+                (
+                    "telegram.org".to_string(),
+                    vec!["216.239.32.107".parse().expect("ip")],
+                ),
+            ],
+        )
+        .expect("runtime ipset");
+        let launch = build_winws_launch(
+            &root.join("web (TELEGRAM RUNTIME SYNDATA).bat"),
+            &root,
+            &root,
+            "telegram_web_runtime_syndata",
+            &["telegram".to_string()],
+            Some(&runtime_ipset),
+        )
+        .expect("runtime launch");
+        let expected_ipset = root
+            .join("lists")
+            .join("ipset-telegram-web-runtime.txt")
+            .display()
+            .to_string();
+        let log = fs::read_to_string(root.join("engine-launch.log")).expect("log");
+
+        assert_eq!(launch.hostlists, Vec::<String>::new());
+        assert_eq!(launch.ipsets, vec![expected_ipset.clone()]);
+        assert!(launch
+            .args
+            .iter()
+            .any(|arg| arg == "--dpi-desync=syndata,fake,fakedsplit"));
+        assert!(log.contains("runtime_dns_profile=telegram"));
+        assert!(log.contains("runtime_dns_accepted_ips=149.154.167.99,216.239.32.107"));
+        assert!(log.contains("runtime_dns_lifetime=run_only"));
         assert!(log.contains(&format!("--ipset={expected_ipset}")));
 
         let _ = fs::remove_dir_all(root);

@@ -58,6 +58,7 @@ Confirmed local install mismatch:
 - General Diagnostics must not claim Windows service, DNS, Internet, Discord, YouTube, Telegram, or WhatsApp are OK without a factual check. Local backend health is separate from Windows service health.
 - On 2026-07-26 the separate `telegram_web` and `whatsapp_web` candidates had the same Edge `ERR_CONNECTION_TIMED_OUT` result as engine-off control. `winws.exe` and WinDivert were active, so the hostlist-only TLS path is confirmed too late for this connection path.
 - Engine-off DNS returned Telegram `149.154.167.99` and `216.239.32.107`, WhatsApp `31.13.72.52` and `129.134.30.12`. Five-second TCP probes to ports 80/443 did not establish, while public control endpoints connected. This indicates a TCP-establishment filter but does not distinguish phase-0 DPI from route/ACL/IP blocking.
+- The static official-CIDR `telegram_web_phase0` candidate also did not change raw TCP or Edge timeout on 2026-07-26. `winws.exe`/WinDivert were active and cleanup passed, so this exact static `syndata,fake,fakedsplit` candidate must not be retried.
 
 ## Current Stabilization Changes
 
@@ -108,19 +109,24 @@ Confirmed local install mismatch:
   existing audited `fake,fakedsplit` primitive. They reject combined/Common
   profile selection, do not use IP sets or UDP filters, and remain experimental
   until remote testing proves an improvement.
-- The hostlist-only Web candidates are now deprecated after the recorded remote
-  failure. A single replacement, `telegram_web_phase0`, is scoped to Telegram
-  alone and uses the official Telegram CIDR list with `syndata,fake,fakedsplit`
-  during TCP establishment. No WhatsApp phase-0 candidate is bundled because
-  there is no narrow trusted static WhatsApp Web CIDR list; a broad HTTPS rule
-  could affect unrelated traffic.
+- The hostlist-only and static official-CIDR Web candidates are deprecated after
+  recorded remote failure. The bounded replacement is a manual A/B matrix:
+  before launch it resolves a fixed pair of Telegram or WhatsApp Web domains,
+  validates public A/AAAA answers, and writes a run-only IP set. Each profile
+  has `syndata,fake,fakedsplit` and `wssize=1:6` TCP-443 candidates. Answers
+  are limited to eight per domain and sixteen total; unsafe, empty, or
+  unexpected answers fail closed. Resolver TTL is unavailable through the
+  standard API, so no result persists past Disable. This remains experimental:
+  CDN sharing and resolver manipulation are manual-test risks.
 - Release packaging now refuses a dirty worktree and passes a verified Git build
   id to Cargo. CI passes its commit id explicitly, preventing a stale `-dirty`
   identity in a clean installer.
 
-## Verified In Current Block
+## Previous Verified Block
 
-Passed locally for `8d3791b` with engine execution disabled:
+Results below apply to the previous static-CIDR build; the current runtime-DNS
+A/B block is not yet built or remotely validated. All service availability
+remains unconfirmed.
 
 - `CARGO_BUILD_JOBS=2 cargo fmt --all --check`
 - `CARGO_BUILD_JOBS=2 cargo test --workspace`
@@ -153,7 +159,7 @@ GitHub Actions:
 
 ## Manual Test Instructions After Fresh Build
 
-Install the new `ZapretManager v1.2-test.exe` over the old Program Files build. Do not use logs from the old installed app. On the isolated remote test PC, record the engine-off baseline, then test `Telegram` alone with `Telegram Web: Phase 0`. Record the IP that Edge actually chooses: `216.239.32.107` is intentionally outside the official Telegram CIDRs and is not covered by this narrow candidate. Keep WhatsApp as an engine-off diagnostic control; no broad unverified Meta IP range is bundled.
+Install the new `ZapretManager v1.2-test.exe` over the old Program Files build. Do not use logs from the old installed app. On the isolated remote PC, record the engine-off baseline, then select Telegram only and test `Runtime IP / Snd`, Disable, and test `Runtime IP / WS`. Repeat with WhatsApp only. Record the actual addresses used by Edge and the run-only `runtime_dns_accepted_ips` list; a browser using a different resolver can select a different endpoint.
 
 After pressing Enable, if it fails, export diagnostics and send:
 
@@ -161,7 +167,7 @@ After pressing Enable, if it fails, export diagnostics and send:
 - `diagnostic-export.txt`;
 - the visible build id shown in Diagnostics.
 
-Fresh logs must include `app_version`, `build_id`, `preflight_ok`, `preflight_report`, and `argv_list`.
+Fresh logs must include `app_version`, `build_id`, `preflight_ok`, `preflight_report`, `argv_list`, `runtime_dns_domains`, `runtime_dns_accepted_ips`, and `runtime_dns_lifetime=run_only`.
 
 ## Remote Test Harness
 

@@ -53,4 +53,25 @@ describe("web-only engine strategies", () => {
       "2a0a:f280::/32",
     ]);
   });
+
+  for (const [name, runtimeList, phase] of [
+    ["web (TELEGRAM RUNTIME SYNDATA).bat", "ipset-telegram-web-runtime.txt", "--dpi-desync=syndata,fake,fakedsplit"],
+    ["web (TELEGRAM RUNTIME WSSIZE).bat", "ipset-telegram-web-runtime.txt", "--wssize=1:6"],
+    ["web (WHATSAPP RUNTIME SYNDATA).bat", "ipset-whatsapp-web-runtime.txt", "--dpi-desync=syndata,fake,fakedsplit"],
+    ["web (WHATSAPP RUNTIME WSSIZE).bat", "ipset-whatsapp-web-runtime.txt", "--wssize=1:6"],
+  ]) {
+    it(`${name} is a narrow runtime-IP diagnostic candidate`, () => {
+      const source = readFileSync(join(root, "engine/local", name), "utf8");
+
+      expect(source.match(/winws\.exe/gi)).toHaveLength(1);
+      expect(source).toContain("--wf-tcp=443");
+      expect(source).toContain("--filter-tcp=443");
+      expect(source).toContain(`--ipset="%LISTS%${runtimeList}"`);
+      expect(source).toContain(phase);
+      expect(source).not.toContain("--hostlist=");
+      expect(source).not.toContain("--filter-udp=");
+      expect(source).not.toContain("--wf-udp=");
+      expect(source).not.toContain("--wsize=");
+    });
+  }
 });

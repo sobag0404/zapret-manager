@@ -5,10 +5,28 @@ import { appActions, useAppStore } from "../store/appStore";
 
 const engineStrategies = [
   {
-    id: "telegram_web_phase0",
-    name: "Telegram Web: Phase 0",
+    id: "telegram_web_runtime_syndata",
+    name: "Telegram Web: Runtime IP / Snd",
     status: "experimental",
-    detail: "Только Telegram Web и официальные IP Telegram",
+    detail: "DNS-ответы перед запуском; только TCP 443",
+  },
+  {
+    id: "telegram_web_runtime_wssize",
+    name: "Telegram Web: Runtime IP / WS",
+    status: "experimental",
+    detail: "DNS-ответы перед запуском; только TCP 443",
+  },
+  {
+    id: "whatsapp_web_runtime_syndata",
+    name: "WhatsApp Web: Runtime IP / Snd",
+    status: "experimental",
+    detail: "DNS-ответы перед запуском; только TCP 443",
+  },
+  {
+    id: "whatsapp_web_runtime_wssize",
+    name: "WhatsApp Web: Runtime IP / WS",
+    status: "experimental",
+    detail: "DNS-ответы перед запуском; только TCP 443",
   },
   { id: "alt", name: "2 ALT", status: "unknown", detail: "Fake + fakedsplit" },
   { id: "alt3", name: "4 ALT3", status: "unknown", detail: "HostFakeSplit" },
@@ -17,7 +35,8 @@ const engineStrategies = [
   { id: "fake_tls_auto", name: "6 Fake TLS Auto", status: "experimental", detail: "Автоматический TLS fake" },
 ];
 
-const telegramCandidates = ["telegram_web_phase0", "alt", "alt3", "simple_fake", "general", "fake_tls_auto"];
+const telegramCandidates = ["telegram_web_runtime_syndata", "telegram_web_runtime_wssize"];
+const whatsappCandidates = ["whatsapp_web_runtime_syndata", "whatsapp_web_runtime_wssize"];
 
 export function Dashboard() {
   const { status, profiles, selectedProfiles, diagnostics, loading, settings } = useAppStore();
@@ -29,8 +48,8 @@ export function Dashboard() {
     ? selectedProfiles[0]
     : null;
   const activeStrategy = settings?.engine_strategy ?? "general";
-  const candidateLabel = singleMessagingProfile === "telegram"
-    ? `Telegram: ${activeStrategy} (${telegramCandidates.includes(activeStrategy) ? "кандидат" : "другая"})`
+  const candidateLabel = singleMessagingProfile
+    ? `${singleMessagingProfile === "telegram" ? "Telegram" : "WhatsApp"}: ${activeStrategy} (${(singleMessagingProfile === "telegram" ? telegramCandidates : whatsappCandidates).includes(activeStrategy) ? "A/B" : "другая"})`
     : null;
 
   return (
@@ -74,7 +93,7 @@ export function Dashboard() {
           <span className="eyebrow">Стратегия engine</span>
           <h2>Все стратегии экспериментальные. ALT5 и ALT6 исключены из обычного выбора.</h2>
         </div>
-        {singleMessagingProfile === "telegram" && (
+        {singleMessagingProfile && (
           <div className="inline-action">
             <span>{candidateLabel}</span>
             <button className="secondary-button" disabled={running || loading.settings} onClick={appActions.nextProfileStrategy} type="button">
@@ -82,13 +101,12 @@ export function Dashboard() {
             </button>
           </div>
         )}
-        {singleMessagingProfile === "whatsapp" && (
-          <p className="hint-line">Для WhatsApp Web нет узкого проверенного IP-диапазона. Phase 0 не включается, чтобы не затронуть другой трафик.</p>
-        )}
         <div className="strategy-grid">
           {engineStrategies.map((strategy) => {
             const selected = (settings?.engine_strategy ?? "general") === strategy.id;
-            const profileRestricted = strategy.id === "telegram_web_phase0" && singleMessagingProfile !== "telegram";
+            const profileRestricted =
+              (strategy.id.startsWith("telegram_web_runtime_") && singleMessagingProfile !== "telegram") ||
+              (strategy.id.startsWith("whatsapp_web_runtime_") && singleMessagingProfile !== "whatsapp");
             return (
               <button
                 className={`strategy-option ${selected ? "is-selected" : ""}`}
