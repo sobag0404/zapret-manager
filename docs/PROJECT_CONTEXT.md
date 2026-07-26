@@ -43,6 +43,7 @@ Confirmed local install mismatch:
 - `c068e58 cleanup: remove app-owned windivert`
 - `26a9dd2 engine: add focused web strategies`
 - `8d3791b engine: add telegram phase0 strategy`
+- `2dba720 engine: add runtime web diagnostics`
 
 ## Current Blockers
 
@@ -144,6 +145,26 @@ Fresh local test installer for `8d3791b`:
 - SHA256 `2A330285A5FA2AAA3E9663C1FAE75C8DBB3C3BEE0AD4C600EFA52066A8D48B93`
 - Built `2026-07-26 11:29:12` with `CARGO_BUILD_JOBS=2`; embedded build id is
   `8d3791bc2cfe` without a dirty suffix.
+- Protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` remain unchanged.
+
+## Verified Current Build
+
+Passed locally for `2dba720` with engine execution disabled:
+
+- `CARGO_BUILD_JOBS=2 cargo fmt --all --check`
+- `CARGO_BUILD_JOBS=2 cargo test --workspace` (24 Tauri tests)
+- `corepack pnpm test` (18 tests)
+- `corepack pnpm --dir app/frontend build`
+- `CARGO_BUILD_JOBS=2` release Tauri package build
+- Independent read-only review of DNS scope, IP normalization, wrapper argv,
+  profile restrictions, and manifest hashes: no command/scope injection found.
+
+Fresh local test installer for `2dba720`:
+
+- `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
+- SHA256 `9171C01FD93068E9EA90711752994239FE6FDDA89522167B350B68A28E802314`
+- Built `2026-07-26 14:49:54` with `CARGO_BUILD_JOBS=2`; embedded build id is
+  `2dba720fe6d6` without a dirty suffix.
 - Protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` remain unchanged.
 
 GitHub Actions:
