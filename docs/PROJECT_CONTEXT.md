@@ -70,6 +70,19 @@ Confirmed local install mismatch:
 - Discord remains unconfirmed. Remote Windows 10 evidence for existing variants 2/4/5/6 was Discord Web reset/TLS protocol errors and Discord Desktop `1.0.9249` staying at `Checking for updates…`; cleanup passed after every run.
 
 ## Current Stabilization Changes
+- Remote validation of installer `3331F1...` on Windows 10 confirmed the
+  existing `alt` strategy (UI `2 ALT`) for Discord Web and Desktop: Web curl
+  returned HTTP 200, headless Edge loaded a Discord title without an error,
+  and Discord Desktop `1.0.9249` completed updater/module initialization and
+  the remote-auth WSS hello handshake. Disable cleanup passed with `winws=0`,
+  no running app-owned WinDivert, zero runtime directories, and TCP timestamps
+  restored to disabled. This is test-network evidence, not a global stable
+  claim.
+- The UI now recommends existing `alt` for Discord-only selection when the
+  engine is disabled and the user has not made a manual strategy choice. It
+  does not replace manual selections, running/error state, mixed profiles, or
+  the existing YouTube-only `fake_tls_auto` recommendation. `2 ALT` is labeled
+  experimental and verified on the test network for Discord Web/Desktop.
 - The remote Discord-only test of installer `D3C2312F...` reached the fail-closed
   TCP-timestamps prerequisite but could not parse `netsh interface tcp show
   global`, although the same Windows 10 host reported `RFC 1323 Timestamps :

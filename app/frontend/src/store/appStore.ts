@@ -67,6 +67,7 @@ export interface StartupStateResult {
 }
 
 export const YOUTUBE_RECOMMENDED_STRATEGY = "fake_tls_auto";
+export const DISCORD_RECOMMENDED_STRATEGY = "alt";
 
 export interface EngineStrategyRecommendationInput {
   selectedProfiles: string[];
@@ -77,6 +78,15 @@ export interface EngineStrategyRecommendationInput {
 
 export function recommendedEngineStrategy(input: EngineStrategyRecommendationInput): string | null {
   const youtubeOnly = input.selectedProfiles.length === 1 && input.selectedProfiles[0] === "youtube";
+  const discordOnly = input.selectedProfiles.length === 1 && input.selectedProfiles[0] === "discord";
+  if (
+    discordOnly &&
+    input.runtimeStatus === "disabled" &&
+    !input.strategySelectedManually &&
+    input.currentStrategy === "general"
+  ) {
+    return DISCORD_RECOMMENDED_STRATEGY;
+  }
   if (
     !youtubeOnly ||
     input.runtimeStatus !== "disabled" ||

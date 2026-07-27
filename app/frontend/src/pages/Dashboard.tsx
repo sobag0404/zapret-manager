@@ -28,7 +28,7 @@ const engineStrategies = [
     status: "experimental",
     detail: "DNS-ответы перед запуском; только TCP 443",
   },
-  { id: "alt", name: "2 ALT", status: "unknown", detail: "Fake + fakedsplit" },
+  { id: "alt", name: "2 ALT", status: "experimental", detail: "Проверено на тестовой сети: Discord Web/Desktop" },
   { id: "alt3", name: "4 ALT3", status: "unknown", detail: "HostFakeSplit" },
   { id: "simple_fake", name: "5 Simple Fake", status: "unknown", detail: "Fake TLS без split" },
   { id: "general", name: "1 General", status: "experimental", detail: "Базовая стратегия Flowseal" },

@@ -5,7 +5,7 @@ import { appActions, useAppStore } from "../store/appStore";
 
 const visibleEngineStrategies = [
   ["telegram_web_phase0", "Telegram Web: Phase 0 / experimental"],
-  ["alt", "2 ALT / unknown"],
+  ["alt", "2 ALT / experimental / проверено на тестовой сети: Discord Web/Desktop"],
   ["alt3", "4 ALT3 / unknown"],
   ["simple_fake", "5 Simple Fake / unknown"],
   ["general", "1 General / experimental"],
