@@ -202,7 +202,7 @@ Install the new `ZapretManager v1.2-test.exe` over the old Program Files build. 
 
 For a runtime-IP candidate, export diagnostics **while it is enabled** and only
 then press Disable. The export includes the local `winws-debug.log` tail, which
-records profile matching without capturing or uploading user traffic. Send this single export together with the remote TCP/Edge timing matrix.
+records profile matching locally and is never uploaded automatically. It can contain technical endpoint IP metadata; send this export only for the remote TCP/Edge timing review.
 
 After pressing Enable, if it fails, export diagnostics and send:
 
