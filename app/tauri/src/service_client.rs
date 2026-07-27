@@ -3872,13 +3872,14 @@ fn cleanup_old_runtime_dirs(runtime_root: &Path, keep: &Path) {
 mod tests {
     use super::{
         build_winws_launch, command_line_references_runtime_root, copy_dir_recursive,
-        decode_netsh_output, disable_state_after_cleanup, expand_strategy_vars,
-        extract_winws_command, is_deprecated_strategy, normalize_runtime_dns_answers,
-        parse_tcp_timestamps_enabled, powershell_single_quote, profile_launch_report,
-        requires_tcp_timestamps, runtime_root_command_prefix, runtime_status_from_cleanup_state,
-        split_windows_args, tcp_timestamp_lease_markers, validate_strategy_profile_scope,
-        windivert_driver_path_is_app_owned, windivert_report_has_running_driver,
-        windivert_service_name_is_safe, write_runtime_profile_ipset, ServiceClient,
+        decode_netsh_output, decode_windows_code_page, disable_state_after_cleanup,
+        expand_strategy_vars, extract_winws_command, is_deprecated_strategy,
+        normalize_runtime_dns_answers, parse_tcp_timestamps_enabled, powershell_single_quote,
+        profile_launch_report, requires_tcp_timestamps, runtime_root_command_prefix,
+        runtime_status_from_cleanup_state, split_windows_args, tcp_timestamp_lease_markers,
+        validate_strategy_profile_scope, windivert_driver_path_is_app_owned,
+        windivert_report_has_running_driver, windivert_service_name_is_safe,
+        write_runtime_profile_ipset, ServiceClient,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -3945,7 +3946,9 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             165, 173, 168, 32, 58, 32, 174, 226, 170, 171, 238, 231, 165, 173, 174,
         ];
         assert_eq!(
-            parse_tcp_timestamps_enabled(&decode_netsh_output(cp866_disabled)),
+            parse_tcp_timestamps_enabled(
+                &decode_windows_code_page(cp866_disabled, 866).expect("CP866 fixture"),
+            ),
             Some(false)
         );
         let utf8_enabled = "RFC 1323 Метки времени : включено".as_bytes();
