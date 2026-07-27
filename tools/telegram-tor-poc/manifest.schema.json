@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zapret Manager Telegram Tor PoC manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "version",
+    "tor_version",
+    "platform",
+    "source_url",
+    "signature_url",
+    "sha256",
+    "signer_fingerprint"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "version": { "type": "string", "minLength": 1 },
+    "tor_version": { "type": "string", "minLength": 1 },
+    "platform": { "const": "windows-x86_64" },
+    "source_url": {
+      "type": "string",
+      "pattern": "^https://(archive|dist)\\.torproject\\.org/"
+    },
+    "signature_url": {
+      "type": "string",
+      "pattern": "^https://(archive|dist)\\.torproject\\.org/.+\\.asc$"
+    },
+    "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "signer_fingerprint": {
+      "const": "EF6E286DDA85EA2A4BA7DE684E2C6E8793298290"
+    }
+  }
+}

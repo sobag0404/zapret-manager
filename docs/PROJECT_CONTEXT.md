@@ -315,6 +315,15 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
 ## Backlog
 
 - Automatic strategy selection by profile health-check after lifecycle stabilization.
+- Telegram DPI-only work is closed for the tested ISP because destination TCP
+  443 is blocked before TLS/SNI and the audited packet-level candidates did not
+  produce a SYN,ACK. `docs/ADR-0001-TELEGRAM-TOR-POC.md` defines a separate,
+  explicit-opt-in feasibility PoC using a verified official Tor Expert Bundle
+  as a loopback-only Telegram Web SOCKS route. This changes the trust model:
+  traffic uses Tor relays, ordinary WebView2 is not equivalent to Tor Browser,
+  and no production integration is approved. The repository contains only
+  offline artifact/config verification tooling; no Tor binary, network
+  downloader, or Tor launcher was added.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
