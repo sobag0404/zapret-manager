@@ -223,9 +223,21 @@ GitHub Actions:
 ## Latest Test Installer
 
 - `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
-- SHA256 `D3C2312F1480A53FF242A0926948FF902608C44A93C063E123136254043E5AF2`
-- Built from clean `4fc6bbc` on `2026-07-27 14:59:42 +03:00` with `CARGO_BUILD_JOBS=2`.
-- The release executable contains build id `4fc6bbc`; protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` retain SHA256 `612B4D42507888E25387CEF4658C62E9021D1BD41EE4C26DAD48398D56FD6D52`.
+- SHA256 `FCA12BA5B3A0CBA775CB3E08FAE8C4A6BBA378F7E44F67ADDC50B8B2761C5289`
+- Built from clean `01e0080` on `2026-07-27` with `CARGO_BUILD_JOBS=2`.
+- Protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` retain SHA256 `612B4D42507888E25387CEF4658C62E9021D1BD41EE4C26DAD48398D56FD6D52`.
+
+## Latest Stabilization Build
+
+- Commit `01e0080`: `launcher: decode netsh timestamp state safely`.
+- The build reads redirected `netsh` output as raw bytes and decodes active
+  ANSI/OEM code pages before parsing the RFC 1323 state. No engine files or
+  network arguments changed. The embedded build id is `01e0080`.
+- Local checks passed: `cargo fmt --all --check`, `cargo test --workspace`
+  (35 tests), `corepack pnpm test` (20 tests), frontend production build, and
+  Tauri release/NSIS build. Engine was not launched on the main PC.
+- GitHub Actions status for `01e0080` must be checked after the push; the
+  local environment could not reach the public Actions API.
 
 ## Manual Test Instructions After Fresh Build
 
