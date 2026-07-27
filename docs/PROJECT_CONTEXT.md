@@ -44,6 +44,8 @@ Confirmed local install mismatch:
 - `26a9dd2 engine: add focused web strategies`
 - `8d3791b engine: add telegram phase0 strategy`
 - `2dba720 engine: add runtime web diagnostics`
+- `5f10823 engine: add runtime debug diagnostics`
+- `7914fcd engine: add telegram syn discriminator`
 
 ## Current Blockers
 
@@ -194,8 +196,9 @@ GitHub Actions:
 ## Latest Test Installer
 
 - `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
-- SHA256 `2C9475E0A66C5EEEAF224446BDE2215820A98E1E0BFFC400700ACE7D227B8027`
-- Built from clean `5f10823523b1` with `CARGO_BUILD_JOBS=2`.
+- SHA256 `F59A3E3E5F3A797FE0ACF1103B372ABB4612146188D110A33326BA227A69D524`
+- Built from clean `7914fcd` on `2026-07-27 12:16:52 +03:00` with `CARGO_BUILD_JOBS=2`.
+- The release executable contains build id `7914fcd`; protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` retain SHA256 `612B4D42507888E25387CEF4658C62E9021D1BD41EE4C26DAD48398D56FD6D52`.
 
 ## Manual Test Instructions After Fresh Build
 
