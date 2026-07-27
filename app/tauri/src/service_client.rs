@@ -803,13 +803,6 @@ impl ServiceClient {
             .unwrap_or_else(|| "engine-launch.log not found".to_string());
         let runtime_report = runtime_winws_report(&self.data_root.join("engine-runtime"))
             .unwrap_or_else(|err| format!("process_check_error={err}"));
-        let winws_debug_log = launch_log_path
-            .as_ref()
-            .map(|path| path.with_file_name("winws-debug.log"))
-            .filter(|path| path.is_file())
-            .map(|path| read_sanitized_log(&path, 240))
-            .unwrap_or_else(|| "winws-debug.log not found; export diagnostics while the runtime candidate is enabled".to_string());
-        let launch_log = format!("{launch_log}\n\n[winws-debug.log tail]\n{winws_debug_log}");
         let windivert_report = runtime_windivert_report(&self.data_root.join("engine-runtime"))
             .unwrap_or_else(|err| format!("windivert_check_error={err}"));
         let (_, engine_summary) = self.engine_process_summary();
@@ -1192,6 +1185,7 @@ fn strategy_bat_file(strategy: &str) -> &'static str {
         "telegram_web_phase0" => "web (TELEGRAM PHASE0).bat",
         "telegram_web_runtime_syndata" => "web (TELEGRAM RUNTIME SYNDATA).bat",
         "telegram_web_runtime_wssize" => "web (TELEGRAM RUNTIME WSSIZE).bat",
+        "telegram_web_runtime_dup" => "web (TELEGRAM RUNTIME DUP).bat",
         "whatsapp_web_runtime_syndata" => "web (WHATSAPP RUNTIME SYNDATA).bat",
         "whatsapp_web_runtime_wssize" => "web (WHATSAPP RUNTIME WSSIZE).bat",
         "telegram_web" => "web (TELEGRAM).bat",
@@ -1245,7 +1239,9 @@ struct LaunchPreflight {
 
 fn runtime_ipset_profile(strategy: &str) -> Option<&'static str> {
     match strategy {
-        "telegram_web_runtime_syndata" | "telegram_web_runtime_wssize" => Some("telegram"),
+        "telegram_web_runtime_syndata"
+        | "telegram_web_runtime_wssize"
+        | "telegram_web_runtime_dup" => Some("telegram"),
         "whatsapp_web_runtime_syndata" | "whatsapp_web_runtime_wssize" => Some("whatsapp"),
         _ => None,
     }
@@ -1846,6 +1842,7 @@ fn profile_strategy_candidates(profile: &str, current_strategy: &str) -> Vec<Str
         "telegram" => vec![
             "telegram_web_runtime_syndata",
             "telegram_web_runtime_wssize",
+            "telegram_web_runtime_dup",
             "alt",
             "alt3",
             "simple_fake",
@@ -1880,7 +1877,8 @@ fn validate_strategy_profile_scope(strategy: &str, selected_profiles: &[String])
         "telegram_web"
         | "telegram_web_phase0"
         | "telegram_web_runtime_syndata"
-        | "telegram_web_runtime_wssize" => Some("telegram"),
+        | "telegram_web_runtime_wssize"
+        | "telegram_web_runtime_dup" => Some("telegram"),
         "whatsapp_web" | "whatsapp_web_runtime_syndata" | "whatsapp_web_runtime_wssize" => {
             Some("whatsapp")
         }
@@ -1909,6 +1907,7 @@ fn strategy_scope(strategy: &str) -> &'static str {
         "telegram_web_phase0" => "telegram_web_phase0_only",
         "telegram_web_runtime_syndata" => "telegram_web_runtime_syndata_only",
         "telegram_web_runtime_wssize" => "telegram_web_runtime_wssize_only",
+        "telegram_web_runtime_dup" => "telegram_web_runtime_dup_only",
         "telegram_web" => "telegram_web_only",
         "whatsapp_web" => "whatsapp_web_only",
         "whatsapp_web_runtime_syndata" => "whatsapp_web_runtime_syndata_only",
@@ -1921,6 +1920,7 @@ fn strategy_filter_mode(strategy_scope: &str) -> &'static str {
     match strategy_scope {
         "telegram_web_runtime_syndata_only" => "runtime_dns_ipset_syndata_strategy",
         "telegram_web_runtime_wssize_only" => "runtime_dns_ipset_wssize_strategy",
+        "telegram_web_runtime_dup_only" => "runtime_dns_ipset_duplicate_syn_strategy",
         "whatsapp_web_runtime_syndata_only" => "runtime_dns_ipset_syndata_strategy",
         "whatsapp_web_runtime_wssize_only" => "runtime_dns_ipset_wssize_strategy",
         "telegram_web_phase0_only" => "phase0_ipset_strategy",
@@ -2145,6 +2145,7 @@ fn normalized_engine_strategy(strategy: &str) -> String {
         "telegram_web_runtime_syndata"
         | "telegram_web_runtime_wssize"
         | "whatsapp_web_runtime_syndata"
+        | "telegram_web_runtime_dup"
         | "whatsapp_web_runtime_wssize"
         | "telegram_web_phase0"
         | "telegram_web"
@@ -3691,6 +3692,7 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
                 "telegram_web_runtime_wssize",
                 "web (TELEGRAM RUNTIME WSSIZE).bat",
             ),
+            ("telegram_web_runtime_dup", "web (TELEGRAM RUNTIME DUP).bat"),
             (
                 "whatsapp_web_runtime_syndata",
                 "web (WHATSAPP RUNTIME SYNDATA).bat",
@@ -3703,7 +3705,9 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             let root = test_runtime_dir(&format!("John Smith {strategy}"));
             copy_dir_recursive(&source, &root).expect("runtime copy");
             let profiles = match strategy {
-                "telegram_web_runtime_syndata" | "telegram_web_runtime_wssize" => {
+                "telegram_web_runtime_syndata"
+                | "telegram_web_runtime_wssize"
+                | "telegram_web_runtime_dup" => {
                     vec!["telegram".to_string()]
                 }
                 "whatsapp_web_runtime_syndata" | "whatsapp_web_runtime_wssize" => {
@@ -3712,7 +3716,9 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
                 _ => vec!["discord".to_string(), "youtube".to_string()],
             };
             let runtime_ipset = match strategy {
-                "telegram_web_runtime_syndata" | "telegram_web_runtime_wssize" => Some(
+                "telegram_web_runtime_syndata"
+                | "telegram_web_runtime_wssize"
+                | "telegram_web_runtime_dup" => Some(
                     write_runtime_profile_ipset(
                         "telegram",
                         &root,
@@ -3767,9 +3773,13 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             );
             if strategy.contains("_runtime_") {
                 assert!(
-                    launch.args.iter().any(|arg| arg.starts_with("--debug=@") && arg.ends_with("winws-debug.log")),
-                    "{strategy} must write a scoped winws debug log"
+                    launch.args.iter().all(|arg| !arg.starts_with("--debug=")),
+                    "{strategy} must not enable noisy winws debug logging by default"
                 );
+            }
+            if strategy == "telegram_web_runtime_dup" {
+                assert!(launch.args.iter().any(|arg| arg == "--dup=1"));
+                assert!(launch.args.iter().any(|arg| arg == "--dup-cutoff=n1"));
             }
 
             assert!(
@@ -3807,6 +3817,11 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         )
         .is_ok());
         assert!(validate_strategy_profile_scope(
+            "telegram_web_runtime_dup",
+            &["telegram".to_string()]
+        )
+        .is_ok());
+        assert!(validate_strategy_profile_scope(
             "whatsapp_web_runtime_syndata",
             &["whatsapp".to_string()]
         )
@@ -3827,6 +3842,11 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         )
         .is_err());
         assert!(validate_strategy_profile_scope(
+            "telegram_web_runtime_dup",
+            &["whatsapp".to_string()]
+        )
+        .is_err());
+        assert!(validate_strategy_profile_scope(
             "telegram_web_runtime_syndata",
             &["whatsapp".to_string()]
         )
@@ -3841,6 +3861,7 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         assert!(is_deprecated_strategy("whatsapp_web"));
         assert!(is_deprecated_strategy("telegram_web_phase0"));
         assert!(!is_deprecated_strategy("telegram_web_runtime_syndata"));
+        assert!(!is_deprecated_strategy("telegram_web_runtime_dup"));
         assert!(!is_deprecated_strategy("whatsapp_web_runtime_wssize"));
         assert!(!is_deprecated_strategy("alt"));
     }

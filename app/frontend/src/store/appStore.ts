@@ -253,7 +253,7 @@ export const appActions = {
     const profile = state.selectedProfiles.length === 1 ? state.selectedProfiles[0] : null;
     const candidates =
       profile === "telegram"
-        ? ["telegram_web_runtime_syndata", "telegram_web_runtime_wssize"]
+        ? ["telegram_web_runtime_syndata", "telegram_web_runtime_wssize", "telegram_web_runtime_dup"]
         : profile === "whatsapp"
           ? ["whatsapp_web_runtime_syndata", "whatsapp_web_runtime_wssize"]
           : ["alt", "alt3", "simple_fake", "general"];

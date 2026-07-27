@@ -35,7 +35,7 @@ const engineStrategies = [
   { id: "fake_tls_auto", name: "6 Fake TLS Auto", status: "experimental", detail: "Автоматический TLS fake" },
 ];
 
-const telegramCandidates = ["telegram_web_runtime_syndata", "telegram_web_runtime_wssize"];
+const telegramCandidates = ["telegram_web_runtime_syndata", "telegram_web_runtime_wssize", "telegram_web_runtime_dup"];
 const whatsappCandidates = ["whatsapp_web_runtime_syndata", "whatsapp_web_runtime_wssize"];
 
 export function Dashboard() {

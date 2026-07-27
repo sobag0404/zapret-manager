@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-26
+Last updated: 2026-07-27
 
 ## Current Goal
 
@@ -68,8 +68,9 @@ Confirmed local install mismatch:
 - The active IPv4 addresses were included in each runtime IP set. No response
   SYN,ACK was observed, so `synack-split` and server-window strategies cannot
   act on this path; upstream marks client `--wsize` obsolete.
-- The next build adds file-only `winws` debug output to the same four existing
-  runtime candidates. Export diagnostics while a candidate is enabled, then Disable removes the runtime directory. No additional bypass strategy is claimed.
+- Remote debug evidence from `5f10823` confirms that the generated IPv4 IP sets match Telegram and WhatsApp targets and that `winws` applies the Phase-0 profile. In `syndata`, `winws` intentionally replaces the original SYN with a SYN carrying data; it is expected to drop that intercepted original rather than immediately send a second ordinary SYN. No target SYN,ACK was observed.
+- Persistent `--debug` was removed from all normal runtime candidates because its global TCP-443 capture produced hundreds of KB of output and once delayed an unrelated control connection. Standard diagnostics now retain only launch/preflight, runtime IP-set, process, and cleanup evidence.
+- The next remote discriminator is Telegram-only `telegram_web_runtime_dup`: it resolves the same bounded run-only IP set, duplicates the first outgoing packet with `--dup=1 --dup-cutoff=n1`, and keeps the original SYN. This is a single manual A/B candidate, not a claimed bypass. A success would isolate `syndata` reconstruction as material; another no-SYN,ACK result strengthens the route/ACL-or-SYN-stage-filter hypothesis but does not prove it.
 
 - Frontend startup separates critical state from optional diagnostics/update/log calls so one optional failure does not break the main toggle.
 - Build Windows workflow now includes `engine/**`, `profiles/**`, `strategies/**`, and manifest/hash tests.
@@ -200,9 +201,10 @@ GitHub Actions:
 
 Install the new `ZapretManager v1.2-test.exe` over the old Program Files build. Do not use logs from the old installed app. On the isolated remote PC, record the engine-off baseline, then select Telegram only and test `Runtime IP / Snd`, Disable, and test `Runtime IP / WS`. Repeat with WhatsApp only. Record the actual addresses used by Edge and the run-only `runtime_dns_accepted_ips` list; a browser using a different resolver can select a different endpoint.
 
-For a runtime-IP candidate, export diagnostics **while it is enabled** and only
-then press Disable. The export includes the local `winws-debug.log` tail, which
-records profile matching locally and is never uploaded automatically. It can contain technical endpoint IP metadata; send this export only for the remote TCP/Edge timing review.
+For a runtime-IP candidate, record the launch log and runtime DNS IP list, run the
+scoped TCP/Edge probe, then press Disable. Normal candidates do not enable packet
+`--debug`; diagnostics contain launch/preflight, process, IP-set, and cleanup
+metadata only and are never uploaded automatically.
 
 After pressing Enable, if it fails, export diagnostics and send:
 
