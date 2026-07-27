@@ -51,9 +51,9 @@ Confirmed local install mismatch:
 
 - Fresh remote evidence on the second PC confirms cleanup: after Disable, scoped `winws.exe=0`, app-owned WinDivert is removed, and runtime directories equal zero.
 - Remote strategy matrix on build `ee8dce4`: `general`, `alt`, `alt3`, `simple_fake`, and `fake_tls_auto` matched baseline with no improvement; `alt5` worsened representative targets to TCP 443 failure and exceeded the full probe timeout. All services remain unconfirmed.
-- Latest remote strategy matrix was run before the cleanup fix and used only
-  general strategies. It does not validate the fresh cleanup installer or the
-  new focused Web candidates.
+- Fresh remote validation of installer SHA256 `F59A3E3E5F3A797FE0ACF1103B372ABB4612146188D110A33326BA227A69D524` on Windows 10 18363 confirmed that `telegram_web_runtime_dup` left Edge `web.telegram.org` at `ERR_CONNECTION_TIMED_OUT` (~21.19 s), matching the engine-off baseline (~21.21 s). A target TCP probe to `149.154.167.99:443` timed out (~6.04 s) while `1.1.1.1:443` passed (~52 ms). The prior runtime IP-set/profile-match evidence plus no inbound SYN,ACK make this a strong destination-IP/SYN-stage filtering signal, not a TLS/SNI or profile-selection result.
+- The same fresh validation confirmed safe shutdown: app, `winws.exe`, Edge test process, and app-owned WinDivert were absent after Disable; runtime directories equalled zero.
+- On this test network the currently bundled local DPI-only candidates have no confirmed path to Telegram Web. Further packet-modification experiments are intentionally paused; the product must not claim Telegram availability without a changed route/network condition and a new remote proof.
 - Old installed build can produce misleading logs; fresh test logs must contain `app_version`, `build_id`, `preflight`, and `argv_list`.
 - Strategy status is unknown until validated end-to-end with a live `winws.exe` process and fresh `engine-launch.log`.
 - ALT6 is reported broken and must remain hidden/disabled from normal UI/candidates.
@@ -72,7 +72,7 @@ Confirmed local install mismatch:
   act on this path; upstream marks client `--wsize` obsolete.
 - Remote debug evidence from `5f10823` confirms that the generated IPv4 IP sets match Telegram and WhatsApp targets and that `winws` applies the Phase-0 profile. In `syndata`, `winws` intentionally replaces the original SYN with a SYN carrying data; it is expected to drop that intercepted original rather than immediately send a second ordinary SYN. No target SYN,ACK was observed.
 - Persistent `--debug` was removed from all normal runtime candidates because its global TCP-443 capture produced hundreds of KB of output and once delayed an unrelated control connection. Standard diagnostics now retain only launch/preflight, runtime IP-set, process, and cleanup evidence.
-- The next remote discriminator is Telegram-only `telegram_web_runtime_dup`: it resolves the same bounded run-only IP set, duplicates the first outgoing packet with `--dup=1 --dup-cutoff=n1`, and keeps the original SYN. This is a single manual A/B candidate, not a claimed bypass. A success would isolate `syndata` reconstruction as material; another no-SYN,ACK result strengthens the route/ACL-or-SYN-stage-filter hypothesis but does not prove it.
+- The Telegram-only `telegram_web_runtime_dup` diagnostic candidate was tested on the same network and did not change the timeout or produce a SYN,ACK. It remains experimental evidence only and is not presented as a working access strategy.
 
 - Frontend startup separates critical state from optional diagnostics/update/log calls so one optional failure does not break the main toggle.
 - Build Windows workflow now includes `engine/**`, `profiles/**`, `strategies/**`, and manifest/hash tests.
@@ -204,7 +204,7 @@ GitHub Actions:
 
 ## Manual Test Instructions After Fresh Build
 
-Install the new `ZapretManager v1.2-test.exe` over the old Program Files build. Do not use logs from the old installed app. On the isolated remote PC, record the engine-off baseline, then select Telegram only and test `Runtime IP / Snd`, Disable, and test `Runtime IP / WS`. Repeat with WhatsApp only. Record the actual addresses used by Edge and the run-only `runtime_dns_accepted_ips` list; a browser using a different resolver can select a different endpoint.
+Install the new `ZapretManager v1.2-test.exe` over the old Program Files build only for lifecycle validation. Do not treat the current Telegram runtime candidates as an availability fix on the tested network, and do not change WhatsApp strategies in this validation block. Record the engine-off baseline and only the launch/cleanup state needed to confirm process, driver, and runtime removal.
 
 For a runtime-IP candidate, record the launch log and runtime DNS IP list, run the
 scoped TCP/Edge probe, then press Disable. Normal candidates do not enable packet
