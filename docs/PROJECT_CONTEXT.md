@@ -266,6 +266,17 @@ GitHub Actions:
   unchanged.
 - `2 ALT` remains experimental and is labeled as verified on the test network
   for Discord Web/Desktop only.
+- Final remote smoke for installer SHA
+  `EE972DA4665BA75FE233DD9CD563715259C95074B6EE89AE1F18F0FBCD9AE384` on
+  Windows 10 passed: after resetting to `general` and reloading, selecting
+  Discord alone automatically changed the UI to `2 ALT`; engine enabled
+  without error; Discord Web returned HTTP 200; Discord Desktop `1.0.9249`
+  reached `launching`, BUILD INFO, and completed the remote-auth WSS hello
+  handshake with six processes. The launch log recorded the timestamp
+  prerequisite and `enabled_by_manager=true`. Disable completed without error:
+  `winws=0`, running WinDivert=0, runtime directories=0, and TCP timestamps
+  returned to disabled. Discord, Edge, harness, and tunnel were stopped. This
+  remains test-network evidence and is not a global stable claim.
 
 ## Manual Test Instructions After Fresh Build
 
