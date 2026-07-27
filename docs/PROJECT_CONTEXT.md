@@ -236,8 +236,8 @@ GitHub Actions:
 ## Latest Test Installer
 
 - `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
-- SHA256 `FCA12BA5B3A0CBA775CB3E08FAE8C4A6BBA378F7E44F67ADDC50B8B2761C5289`
-- Built from clean `01e0080` on `2026-07-27` with `CARGO_BUILD_JOBS=2`.
+- SHA256 `EE972DA4665BA75FE233DD9CD563715259C95074B6EE89AE1F18F0FBCD9AE384`
+- Built from clean `df0cbaa` on `2026-07-27` with `CARGO_BUILD_JOBS=2`.
 - Protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` retain SHA256 `612B4D42507888E25387CEF4658C62E9021D1BD41EE4C26DAD48398D56FD6D52`.
 
 ## Latest Stabilization Build
@@ -257,6 +257,15 @@ GitHub Actions:
 - GitHub Actions for `01e0080`/`61ab33e` failed in `Rust workspace tests`;
   Build Windows for `01e0080` passed. The replacement commit is `be96f58`;
   its CI and Build Windows runs are the release gate before remote testing.
+
+## Latest UX Build
+
+- Commit `df0cbaa`: `ui: recommend verified Discord strategy`.
+- Discord-only selection now recommends existing `alt` only while disabled,
+  with no manual strategy choice and no mixed profiles. YouTube behavior is
+  unchanged.
+- `2 ALT` remains experimental and is labeled as verified on the test network
+  for Discord Web/Desktop only.
 
 ## Manual Test Instructions After Fresh Build
 
