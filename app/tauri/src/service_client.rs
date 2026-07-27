@@ -2140,11 +2140,12 @@ fn acquire_tcp_timestamp_lease(args: &[String], runtime_dir: &Path) -> Result<Tc
         return Ok(TcpTimestampLease::none());
     }
 
-    set_tcp_timestamps_with_elevation(true)?;
     let marker_path = runtime_dir.join(TCP_TIMESTAMP_LEASE_FILE);
-    if let Err(source) = fs::write(&marker_path, "enabled_by_manager=true\n") {
-        let _ = set_tcp_timestamps_with_elevation(false);
-        return Err(zapret_manager_core::io_error(&marker_path, source));
+    fs::write(&marker_path, "enabled_by_manager=true\n")
+        .map_err(|source| zapret_manager_core::io_error(&marker_path, source))?;
+    if let Err(err) = set_tcp_timestamps_with_elevation(true) {
+        let _ = fs::remove_file(&marker_path);
+        return Err(err);
     }
     Ok(TcpTimestampLease {
         enabled_by_manager: true,
@@ -2178,21 +2179,7 @@ fn restore_tcp_timestamp_leases(runtime_root: &Path) -> Result<()> {
     #[cfg(windows)]
     validate_windivert_cleanup_root(runtime_root)?;
 
-    let Ok(entries) = fs::read_dir(runtime_root) else {
-        return Ok(());
-    };
-
-    let markers = entries
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("run-"))
-        })
-        .map(|path| path.join(TCP_TIMESTAMP_LEASE_FILE))
-        .filter(|path| path.is_file())
-        .collect::<Vec<_>>();
+    let markers = tcp_timestamp_lease_markers(runtime_root)?;
 
     if markers.is_empty() {
         return Ok(());
@@ -2222,6 +2209,24 @@ fn restore_tcp_timestamp_leases(runtime_root: &Path) -> Result<()> {
             .map_err(|source| zapret_manager_core::io_error(&marker_path, source))?;
     }
     Ok(())
+}
+
+fn tcp_timestamp_lease_markers(runtime_root: &Path) -> Result<Vec<PathBuf>> {
+    let Ok(entries) = fs::read_dir(runtime_root) else {
+        return Ok(Vec::new());
+    };
+
+    Ok(entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("run-"))
+        })
+        .map(|path| path.join(TCP_TIMESTAMP_LEASE_FILE))
+        .filter(|path| path.is_file())
+        .collect())
 }
 
 #[cfg(windows)]
@@ -3798,9 +3803,9 @@ mod tests {
         is_deprecated_strategy, normalize_runtime_dns_answers, parse_tcp_timestamps_enabled,
         powershell_single_quote, profile_launch_report, requires_tcp_timestamps,
         runtime_root_command_prefix, runtime_status_from_cleanup_state, split_windows_args,
-        validate_strategy_profile_scope, windivert_driver_path_is_app_owned,
-        windivert_report_has_running_driver, windivert_service_name_is_safe,
-        write_runtime_profile_ipset, ServiceClient,
+        tcp_timestamp_lease_markers, validate_strategy_profile_scope,
+        windivert_driver_path_is_app_owned, windivert_report_has_running_driver,
+        windivert_service_name_is_safe, write_runtime_profile_ipset, ServiceClient,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -3849,6 +3854,32 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             Some(false)
         );
         assert_eq!(parse_tcp_timestamps_enabled("unrelated output"), None);
+    }
+
+    #[test]
+    fn timestamp_crash_recovery_discovers_only_managed_runtime_leases() {
+        let root = test_runtime_dir("timestamp leases");
+        let managed = root.join("run-123");
+        let unrelated = root.join("notes");
+        fs::create_dir_all(&managed).expect("managed runtime");
+        fs::create_dir_all(&unrelated).expect("unrelated directory");
+        fs::write(
+            managed.join(".zapret-manager-tcp-timestamps-lease"),
+            "enabled_by_manager=true\n",
+        )
+        .expect("managed marker");
+        fs::write(
+            unrelated.join(".zapret-manager-tcp-timestamps-lease"),
+            "enabled_by_manager=true\n",
+        )
+        .expect("unrelated marker");
+
+        assert_eq!(
+            tcp_timestamp_lease_markers(&root).expect("markers"),
+            vec![managed.join(".zapret-manager-tcp-timestamps-lease")]
+        );
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
