@@ -46,6 +46,7 @@ Confirmed local install mismatch:
 - `2dba720 engine: add runtime web diagnostics`
 - `5f10823 engine: add runtime debug diagnostics`
 - `7914fcd engine: add telegram syn discriminator`
+- `16cd76d ui: recommend youtube strategy`
 
 ## Current Blockers
 
@@ -184,6 +185,9 @@ Fresh local test installer for `2dba720`:
 
 GitHub Actions:
 
+- `16cd76d`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30262510728.
+- `16cd76d`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30262510731.
+- `1f0ba56`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30262660462.
 - `5f10823`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30243787596.
 - `5f10823`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30243787592.
 - 9e3a726 (code build 7914fcd): CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30253649496.
