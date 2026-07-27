@@ -47,6 +47,8 @@ Confirmed local install mismatch:
 - `5f10823 engine: add runtime debug diagnostics`
 - `7914fcd engine: add telegram syn discriminator`
 - `16cd76d ui: recommend youtube strategy`
+- `7845808 launcher: restore timestamp prerequisite`
+- `4fc6bbc launcher: harden timestamp rollback`
 
 ## Current Blockers
 
@@ -209,15 +211,17 @@ GitHub Actions:
 ## Latest Test Installer
 
 - `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
-- SHA256 `82DA5E1C28C9BB496C7C6CE8D0D03DAD0BDCEF262D4D06F8FCB511E5CC514E44`
-- Built from clean `16cd76d` on `2026-07-27 14:34:44 +03:00` with `CARGO_BUILD_JOBS=2`.
-- The release executable contains build id `16cd76d`; protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` retain SHA256 `612B4D42507888E25387CEF4658C62E9021D1BD41EE4C26DAD48398D56FD6D52`.
+- SHA256 `D3C2312F1480A53FF242A0926948FF902608C44A93C063E123136254043E5AF2`
+- Built from clean `4fc6bbc` on `2026-07-27 14:59:42 +03:00` with `CARGO_BUILD_JOBS=2`.
+- The release executable contains build id `4fc6bbc`; protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` retain SHA256 `612B4D42507888E25387CEF4658C62E9021D1BD41EE4C26DAD48398D56FD6D52`.
 
 ## Manual Test Instructions After Fresh Build
 
 Install the new `ZapretManager v1.2-test.exe` over the old Program Files build only for lifecycle validation. Do not treat the current Telegram runtime candidates as an availability fix on the tested network, and do not change WhatsApp strategies in this validation block. Record the engine-off baseline and only the launch/cleanup state needed to confirm process, driver, and runtime removal.
 
 For YouTube-only validation, leave the engine disabled, select only YouTube, and confirm that the existing `6 Fake TLS Auto` is selected as the test-network recommendation. It must remain marked experimental. Test the main page and one watch page, then press Disable and confirm app-owned `winws.exe`, WinDivert, and runtime directories are absent. Select Discord separately only to verify that no availability claim is shown; do not treat it as working without a new remote proof.
+
+For Discord-only validation, start with engine disabled and verify `netsh interface tcp show global` reports TCP timestamps disabled. Select Discord only and test existing variants 2, 4, and 5 separately. For each variant, approve the temporary UAC request, confirm `engine-launch.log` reports `legacy_bat_tcp_timestamps_required=true` and the managed state, then test Discord Web and a clean Discord Desktop restart. Press Disable after each attempt and verify `winws.exe=0`, no app-owned WinDivert, runtime directories equal zero, and TCP timestamps return to disabled. Variant 6 is a control: it must not request or log the timestamp prerequisite because its existing argv has no `ts` value.
 
 For a runtime-IP candidate, record the launch log and runtime DNS IP list, run the
 scoped TCP/Edge probe, then press Disable. Normal candidates do not enable packet
