@@ -9,7 +9,7 @@ const visibleEngineStrategies = [
   ["alt3", "4 ALT3 / unknown"],
   ["simple_fake", "5 Simple Fake / unknown"],
   ["general", "1 General / experimental"],
-  ["fake_tls_auto", "6 Fake TLS Auto / experimental"],
+  ["fake_tls_auto", "6 Fake TLS Auto / experimental / verified for YouTube Web on test network"],
 ];
 
 export function Settings() {

@@ -4,7 +4,7 @@ Last updated: 2026-07-27
 
 ## Current Goal
 
-Zapret Manager v1.2: stabilize enable/disable/diagnostics around the local verified engine before trying new DPI strategies. Discord, YouTube, Telegram, and WhatsApp must be treated as unconfirmed until a fresh build is manually tested.
+Zapret Manager v1.2: stabilize enable/disable/diagnostics around the local verified engine. Discord, Telegram, and WhatsApp remain unconfirmed. YouTube Web has limited test-network evidence only through the existing experimental `fake_tls_auto` variant.
 
 This is a local Windows app. It is not a VPN, does not use a third-party traffic server, does not require an account, and does not collect telemetry.
 
@@ -50,13 +50,15 @@ Confirmed local install mismatch:
 ## Current Blockers
 
 - Fresh remote evidence on the second PC confirms cleanup: after Disable, scoped `winws.exe=0`, app-owned WinDivert is removed, and runtime directories equal zero.
-- Remote strategy matrix on build `ee8dce4`: `general`, `alt`, `alt3`, `simple_fake`, and `fake_tls_auto` matched baseline with no improvement; `alt5` worsened representative targets to TCP 443 failure and exceeded the full probe timeout. All services remain unconfirmed.
+- A newer Windows 10 remote test of installer `F59A3E3E5F3A797FE0ACF1103B372ABB4612146188D110A33326BA227A69D524` confirmed YouTube Web only with the existing experimental `fake_tls_auto`: HTTP 200, the main page and `jNQXAC9IVRw` watch page loaded, `readyState=4`, and playback advanced from 6.12 to 13.12 seconds in seven seconds. This is evidence for that test network only, not a stable claim.
+- The same test found Discord Web reset/TLS errors on existing variants 2/4/5/6. Official Discord Desktop `1.0.9249` remained at `Checking for updates…` after isolated 35–90 second restarts. Discord remains experimental and unconfirmed.
+- `fake_tls_auto` allowed the official Discord installer download through winget with hash verification, but did not make Discord connect.
 - Fresh remote validation of installer SHA256 `F59A3E3E5F3A797FE0ACF1103B372ABB4612146188D110A33326BA227A69D524` on Windows 10 18363 confirmed that `telegram_web_runtime_dup` left Edge `web.telegram.org` at `ERR_CONNECTION_TIMED_OUT` (~21.19 s), matching the engine-off baseline (~21.21 s). A target TCP probe to `149.154.167.99:443` timed out (~6.04 s) while `1.1.1.1:443` passed (~52 ms). The prior runtime IP-set/profile-match evidence plus no inbound SYN,ACK make this a strong destination-IP/SYN-stage filtering signal, not a TLS/SNI or profile-selection result.
 - The same fresh validation confirmed safe shutdown: app, `winws.exe`, Edge test process, and app-owned WinDivert were absent after Disable; runtime directories equalled zero.
 - On this test network the currently bundled local DPI-only candidates have no confirmed path to Telegram Web. Further packet-modification experiments are intentionally paused; the product must not claim Telegram availability without a changed route/network condition and a new remote proof.
 - Old installed build can produce misleading logs; fresh test logs must contain `app_version`, `build_id`, `preflight`, and `argv_list`.
 - Strategy status is unknown until validated end-to-end with a live `winws.exe` process and fresh `engine-launch.log`.
-- ALT6 is reported broken and must remain hidden/disabled from normal UI/candidates.
+- Legacy ALT6 is reported broken and remains hidden/disabled. It is distinct from the existing experimental UI option numbered `6 Fake TLS Auto`.
 - Snapshot/revert for DNS/proxy/firewall is still not implemented; v1.2 only stops the managed engine and cleans runtime state. The app must not claim full DNS/proxy restore.
 - General Diagnostics must not claim Windows service, DNS, Internet, Discord, YouTube, Telegram, or WhatsApp are OK without a factual check. Local backend health is separate from Windows service health.
 - On 2026-07-26 the separate `telegram_web` and `whatsapp_web` candidates had the same Edge `ERR_CONNECTION_TIMED_OUT` result as engine-off control. `winws.exe` and WinDivert were active, so the hostlist-only TLS path is confirmed too late for this connection path.
@@ -64,6 +66,8 @@ Confirmed local install mismatch:
 - The static official-CIDR `telegram_web_phase0` candidate also did not change raw TCP or Edge timeout on 2026-07-26. `winws.exe`/WinDivert were active and cleanup passed, so this exact static `syndata,fake,fakedsplit` candidate must not be retried.
 
 ## Current Stabilization Changes
+- When only YouTube is selected while the engine is disabled and the default strategy is still active, the UI selects the existing experimental `fake_tls_auto` recommendation. A saved manual strategy or an active/error engine is never changed automatically.
+- The UI labels `6 Fake TLS Auto` as test-network evidence for YouTube Web and distinguishes it from hidden legacy ALT6. This does not change any engine files, manifest hashes, or network parameters.
 - Remote A/B for `2dba720` confirmed that all four runtime DNS-IP candidates
   started `winws`/WinDivert but left Telegram Web and WhatsApp Web at the same
   ~21 s TCP timeout as engine-off. A TCP control to `1.1.1.1:443` passed.

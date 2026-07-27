@@ -32,7 +32,12 @@ const engineStrategies = [
   { id: "alt3", name: "4 ALT3", status: "unknown", detail: "HostFakeSplit" },
   { id: "simple_fake", name: "5 Simple Fake", status: "unknown", detail: "Fake TLS без split" },
   { id: "general", name: "1 General", status: "experimental", detail: "Базовая стратегия Flowseal" },
-  { id: "fake_tls_auto", name: "6 Fake TLS Auto", status: "experimental", detail: "Автоматический TLS fake" },
+  {
+    id: "fake_tls_auto",
+    name: "6 Fake TLS Auto",
+    status: "experimental",
+    detail: "Проверено на тестовой сети: YouTube Web",
+  },
 ];
 
 const telegramCandidates = ["telegram_web_runtime_syndata", "telegram_web_runtime_wssize", "telegram_web_runtime_dup"];
@@ -91,7 +96,7 @@ export function Dashboard() {
       <section className="dashboard-section">
         <div className="section-heading">
           <span className="eyebrow">Стратегия engine</span>
-          <h2>Все стратегии экспериментальные. ALT5 и ALT6 исключены из обычного выбора.</h2>
+          <h2>Все стратегии экспериментальные. ALT5 и legacy ALT6 скрыты; «6 Fake TLS Auto» является отдельным вариантом.</h2>
         </div>
         {singleMessagingProfile && (
           <div className="inline-action">

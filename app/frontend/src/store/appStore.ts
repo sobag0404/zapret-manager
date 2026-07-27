@@ -21,6 +21,7 @@ interface AppState {
   userLog: string;
   exportPath: string | null;
   settings: AppSettings | null;
+  strategySelectedManually: boolean;
   selectedPage: PageId;
   loading: Record<string, boolean>;
   error: string | null;
@@ -36,6 +37,7 @@ const initialState: AppState = {
   userLog: "",
   exportPath: null,
   settings: null,
+  strategySelectedManually: false,
   selectedPage: "dashboard",
   loading: {},
   error: null,
@@ -62,6 +64,29 @@ export interface StartupStateResult {
   critical: Pick<AppState, "status" | "profiles" | "selectedProfiles" | "settings">;
   optional: Partial<Pick<AppState, "diagnostics" | "strategyUpdateStatus" | "userLog">>;
   optionalErrors: string[];
+}
+
+export const YOUTUBE_RECOMMENDED_STRATEGY = "fake_tls_auto";
+
+export interface EngineStrategyRecommendationInput {
+  selectedProfiles: string[];
+  runtimeStatus: AppStatus["status"] | null;
+  currentStrategy: string;
+  strategySelectedManually: boolean;
+}
+
+export function recommendedEngineStrategy(input: EngineStrategyRecommendationInput): string | null {
+  const youtubeOnly = input.selectedProfiles.length === 1 && input.selectedProfiles[0] === "youtube";
+  if (
+    !youtubeOnly ||
+    input.runtimeStatus !== "disabled" ||
+    input.strategySelectedManually ||
+    input.currentStrategy !== "general"
+  ) {
+    return null;
+  }
+
+  return YOUTUBE_RECOMMENDED_STRATEGY;
 }
 
 async function runAction<T>(key: string, action: () => Promise<T>): Promise<T | null> {
@@ -159,12 +184,22 @@ export const appActions = {
       setState({
         ...startup.critical,
         ...startup.optional,
+        strategySelectedManually: (startup.critical.settings?.engine_strategy ?? "general") !== "general",
         error: startup.optionalErrors.length ? `Часть данных не загрузилась: ${startup.optionalErrors.join("; ")}` : null,
       });
     });
   },
   setProfileSelected: async (id: string, enabled: boolean) => {
-    setState({ selectedProfiles: nextSelectedProfiles(id, enabled), error: null });
+    const selectedProfiles = nextSelectedProfiles(id, enabled);
+    setState({ selectedProfiles, error: null });
+
+    const recommended = recommendedEngineStrategy({
+      selectedProfiles,
+      runtimeStatus: state.status?.status ?? null,
+      currentStrategy: state.settings?.engine_strategy ?? "general",
+      strategySelectedManually: state.strategySelectedManually,
+    });
+    if (recommended) await appActions.setEngineStrategy(recommended, false);
   },
   toggleEnabled: async () => {
     if (state.status?.status !== "running" && state.status?.status !== "error" && state.selectedProfiles.length === 0) {
@@ -240,14 +275,15 @@ export const appActions = {
     if (exportPath) setState({ exportPath });
   },
   saveSettings: async (settings: AppSettings) => {
+    const strategyChanged = settings.engine_strategy !== state.settings?.engine_strategy;
     const saved = await runAction("settings", () => tauriCommands.saveSettings(settings));
-    if (saved) setState({ settings: saved });
+    if (saved) setState({ settings: saved, strategySelectedManually: strategyChanged || state.strategySelectedManually });
   },
-  setEngineStrategy: async (engine_strategy: string) => {
+  setEngineStrategy: async (engine_strategy: string, manual = true) => {
     const nextSettings = { ...(state.settings ?? defaultSettings()), engine_strategy };
-    setState({ settings: nextSettings, error: null });
+    setState({ settings: nextSettings, strategySelectedManually: manual, error: null });
     const saved = await runAction("settings", () => tauriCommands.saveSettings(nextSettings));
-    if (saved) setState({ settings: saved });
+    if (saved) setState({ settings: saved, strategySelectedManually: manual });
   },
   nextProfileStrategy: async () => {
     const profile = state.selectedProfiles.length === 1 ? state.selectedProfiles[0] : null;
