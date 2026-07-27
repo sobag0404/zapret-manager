@@ -62,6 +62,14 @@ Confirmed local install mismatch:
 - The static official-CIDR `telegram_web_phase0` candidate also did not change raw TCP or Edge timeout on 2026-07-26. `winws.exe`/WinDivert were active and cleanup passed, so this exact static `syndata,fake,fakedsplit` candidate must not be retried.
 
 ## Current Stabilization Changes
+- Remote A/B for `2dba720` confirmed that all four runtime DNS-IP candidates
+  started `winws`/WinDivert but left Telegram Web and WhatsApp Web at the same
+  ~21 s TCP timeout as engine-off. A TCP control to `1.1.1.1:443` passed.
+- The active IPv4 addresses were included in each runtime IP set. No response
+  SYN,ACK was observed, so `synack-split` and server-window strategies cannot
+  act on this path; upstream marks client `--wsize` obsolete.
+- The next build adds file-only `winws` debug output to the same four existing
+  runtime candidates. Export diagnostics while a candidate is enabled, then Disable removes the runtime directory. No additional bypass strategy is claimed.
 
 - Frontend startup separates critical state from optional diagnostics/update/log calls so one optional failure does not break the main toggle.
 - Build Windows workflow now includes `engine/**`, `profiles/**`, `strategies/**`, and manifest/hash tests.
@@ -181,6 +189,10 @@ GitHub Actions:
 ## Manual Test Instructions After Fresh Build
 
 Install the new `ZapretManager v1.2-test.exe` over the old Program Files build. Do not use logs from the old installed app. On the isolated remote PC, record the engine-off baseline, then select Telegram only and test `Runtime IP / Snd`, Disable, and test `Runtime IP / WS`. Repeat with WhatsApp only. Record the actual addresses used by Edge and the run-only `runtime_dns_accepted_ips` list; a browser using a different resolver can select a different endpoint.
+
+For a runtime-IP candidate, export diagnostics **while it is enabled** and only
+then press Disable. The export includes the local `winws-debug.log` tail, which
+records profile matching without capturing or uploading user traffic. Send this single export together with the remote TCP/Edge timing matrix.
 
 After pressing Enable, if it fails, export diagnostics and send:
 

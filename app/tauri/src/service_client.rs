@@ -803,6 +803,13 @@ impl ServiceClient {
             .unwrap_or_else(|| "engine-launch.log not found".to_string());
         let runtime_report = runtime_winws_report(&self.data_root.join("engine-runtime"))
             .unwrap_or_else(|err| format!("process_check_error={err}"));
+        let winws_debug_log = launch_log_path
+            .as_ref()
+            .map(|path| path.with_file_name("winws-debug.log"))
+            .filter(|path| path.is_file())
+            .map(|path| read_sanitized_log(&path, 240))
+            .unwrap_or_else(|| "winws-debug.log not found; export diagnostics while the runtime candidate is enabled".to_string());
+        let launch_log = format!("{launch_log}\n\n[winws-debug.log tail]\n{winws_debug_log}");
         let windivert_report = runtime_windivert_report(&self.data_root.join("engine-runtime"))
             .unwrap_or_else(|err| format!("windivert_check_error={err}"));
         let (_, engine_summary) = self.engine_process_summary();
@@ -3758,6 +3765,13 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
                 launch.args.iter().all(|arg| !arg.contains('"')),
                 "{strategy} argv contains raw quote"
             );
+            if strategy.contains("_runtime_") {
+                assert!(
+                    launch.args.iter().any(|arg| arg.starts_with("--debug=@") && arg.ends_with("winws-debug.log")),
+                    "{strategy} must write a scoped winws debug log"
+                );
+            }
+
             assert!(
                 launch.args.iter().any(|arg| arg
                     .contains(&root.join("lists").display().to_string())

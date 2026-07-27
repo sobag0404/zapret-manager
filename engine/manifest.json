@@ -60,12 +60,12 @@
     },
     {
       "relative_path": "web (TELEGRAM RUNTIME SYNDATA).bat",
-      "sha256": "a75ee8d11dae6fcc6bc46194663aa1ebf2afdf6ea8d02cb28cee955e463c6379",
+      "sha256": "0483a909497b4596f35f2decf1d78e13b73a2943443718ffe016a6b142af2dba",
       "executable": true
     },
     {
       "relative_path": "web (TELEGRAM RUNTIME WSSIZE).bat",
-      "sha256": "4ce272dc87d899182db490a87dde0e13e2a0957da0031eefa44c89eeed64d4aa",
+      "sha256": "67b50ec59dc4e19b1a9d93aab02ac4c4a2bb55eb278eabf2ab54385f27855a32",
       "executable": true
     },
     {
@@ -80,12 +80,12 @@
     },
     {
       "relative_path": "web (WHATSAPP RUNTIME SYNDATA).bat",
-      "sha256": "f96673ae62518e86a8ddd98dd3aa2b84f517f76f607a95e97e4c4be984d5abb7",
+      "sha256": "2cd5d5d5a50728aee891f92ce50698940c92eefad6655702245ab966f69afdd7",
       "executable": true
     },
     {
       "relative_path": "web (WHATSAPP RUNTIME WSSIZE).bat",
-      "sha256": "314824c16895189d9949ac5990e05dd831a16c28011d6bb2c8732539c03c8cea",
+      "sha256": "6447714edec85e67ccb0196dc790f70fb4e070351398e562b86fb5d23425d43f",
       "executable": true
     },
     {
