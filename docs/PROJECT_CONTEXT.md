@@ -202,13 +202,15 @@ GitHub Actions:
 ## Latest Test Installer
 
 - `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
-- SHA256 `F59A3E3E5F3A797FE0ACF1103B372ABB4612146188D110A33326BA227A69D524`
-- Built from clean `7914fcd` on `2026-07-27 12:16:52 +03:00` with `CARGO_BUILD_JOBS=2`.
-- The release executable contains build id `7914fcd`; protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` retain SHA256 `612B4D42507888E25387CEF4658C62E9021D1BD41EE4C26DAD48398D56FD6D52`.
+- SHA256 `82DA5E1C28C9BB496C7C6CE8D0D03DAD0BDCEF262D4D06F8FCB511E5CC514E44`
+- Built from clean `16cd76d` on `2026-07-27 14:34:44 +03:00` with `CARGO_BUILD_JOBS=2`.
+- The release executable contains build id `16cd76d`; protected `ZapretManagerSetup.exe` and `ZapretManager v1.0.exe` retain SHA256 `612B4D42507888E25387CEF4658C62E9021D1BD41EE4C26DAD48398D56FD6D52`.
 
 ## Manual Test Instructions After Fresh Build
 
 Install the new `ZapretManager v1.2-test.exe` over the old Program Files build only for lifecycle validation. Do not treat the current Telegram runtime candidates as an availability fix on the tested network, and do not change WhatsApp strategies in this validation block. Record the engine-off baseline and only the launch/cleanup state needed to confirm process, driver, and runtime removal.
+
+For YouTube-only validation, leave the engine disabled, select only YouTube, and confirm that the existing `6 Fake TLS Auto` is selected as the test-network recommendation. It must remain marked experimental. Test the main page and one watch page, then press Disable and confirm app-owned `winws.exe`, WinDivert, and runtime directories are absent. Select Discord separately only to verify that no availability claim is shown; do not treat it as working without a new remote proof.
 
 For a runtime-IP candidate, record the launch log and runtime DNS IP list, run the
 scoped TCP/Edge probe, then press Disable. Normal candidates do not enable packet
