@@ -229,15 +229,21 @@ GitHub Actions:
 
 ## Latest Stabilization Build
 
-- Commit `01e0080`: `launcher: decode netsh timestamp state safely`.
+- Commit `be96f58`: `ci: make codepage fixture deterministic`.
+- The previous CI failure was caused by a test using the machine's active OEM
+  code page to decode a CP866 fixture. The test now selects CP866 explicitly;
+  production still uses the active Windows ANSI/OEM pages.
 - The build reads redirected `netsh` output as raw bytes and decodes active
   ANSI/OEM code pages before parsing the RFC 1323 state. No engine files or
   network arguments changed. The embedded build id is `01e0080`.
 - Local checks passed: `cargo fmt --all --check`, `cargo test --workspace`
   (35 tests), `corepack pnpm test` (20 tests), frontend production build, and
   Tauri release/NSIS build. Engine was not launched on the main PC.
-- GitHub Actions status for `01e0080` must be checked after the push; the
-  local environment could not reach the public Actions API.
+- Fresh installer SHA256:
+  `3331F1B2844EC87735DF53A02BC53054F7794B989970ABFD1156631F960F933B`.
+- GitHub Actions for `01e0080`/`61ab33e` failed in `Rust workspace tests`;
+  Build Windows for `01e0080` passed. The replacement commit is `be96f58`;
+  its CI and Build Windows runs are the release gate before remote testing.
 
 ## Manual Test Instructions After Fresh Build
 
