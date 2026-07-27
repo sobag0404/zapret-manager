@@ -177,6 +177,10 @@ Fresh local test installer for `2dba720`:
 
 GitHub Actions:
 
+- `5f10823`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30243787596.
+- `5f10823`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30243787592.
+
+
 - `2f4c8d3`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30017561146.
 - `2f4c8d3`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30017560507.
 - `ee8dce4`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30004372246.
@@ -185,6 +189,12 @@ GitHub Actions:
 - `26a9dd2`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30079062802.
 - `8d3791b`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30194597186.
 - `8d3791b`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30194597207.
+
+## Latest Test Installer
+
+- `target/release/bundle/nsis/ZapretManager v1.2-test.exe`
+- SHA256 `2C9475E0A66C5EEEAF224446BDE2215820A98E1E0BFFC400700ACE7D227B8027`
+- Built from clean `5f10823523b1` with `CARGO_BUILD_JOBS=2`.
 
 ## Manual Test Instructions After Fresh Build
 
