@@ -182,6 +182,8 @@ GitHub Actions:
 
 - `5f10823`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30243787596.
 - `5f10823`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30243787592.
+- 9e3a726 (code build 7914fcd): CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30253649496.
+- 9e3a726 (code build 7914fcd): Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30253649558.
 
 
 - `2f4c8d3`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30017561146.
