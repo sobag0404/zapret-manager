@@ -23,6 +23,8 @@ use windows_sys::Win32::Foundation::{
     STILL_ACTIVE, S_OK,
 };
 #[cfg(windows)]
+use windows_sys::Win32::Globalization::{GetACP, GetOEMCP, MultiByteToWideChar};
+#[cfg(windows)]
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 #[cfg(windows)]
 use windows_sys::Win32::System::Services::{
@@ -2243,7 +2245,7 @@ fn tcp_timestamps_enabled() -> Result<bool> {
             String::from_utf8_lossy(&output.stderr).trim()
         )));
     }
-    parse_tcp_timestamps_enabled(&String::from_utf8_lossy(&output.stdout)).ok_or_else(|| {
+    parse_tcp_timestamps_enabled(&decode_netsh_output(&output.stdout)).ok_or_else(|| {
         ZapretError::Operation(
             "Не удалось определить состояние TCP timestamps; запуск стратегии отменён, чтобы сохранить обратимость."
                 .to_string(),
@@ -2258,18 +2260,89 @@ fn tcp_timestamps_enabled() -> Result<bool> {
 
 fn parse_tcp_timestamps_enabled(output: &str) -> Option<bool> {
     output.lines().find_map(|line| {
-        let normalized = line.trim().to_ascii_lowercase();
-        if !normalized.contains("timestamp") {
+        let normalized = line.trim().to_lowercase();
+        // RFC 1323 is invariant across netsh UI languages. Restrict parsing to
+        // this row so unrelated enabled/disabled diagnostics cannot pass.
+        if !normalized.contains("1323") {
             return None;
         }
-        if normalized.contains("enabled") {
+        if normalized.contains("enabled")
+            || normalized.contains("включено")
+            || normalized.contains("включен")
+            || normalized.contains("вкл")
+        {
             Some(true)
-        } else if normalized.contains("disabled") {
+        } else if normalized.contains("disabled")
+            || normalized.contains("отключено")
+            || normalized.contains("отключен")
+            || normalized.contains("выключено")
+            || normalized.contains("выкл")
+        {
             Some(false)
         } else {
             None
         }
     })
+}
+
+#[cfg(windows)]
+fn decode_netsh_output(bytes: &[u8]) -> String {
+    // netsh writes to a redirected pipe using a system/OEM code page rather
+    // than necessarily UTF-8. Try UTF-8 only when it is parseable, then use
+    // the active ANSI and OEM pages without guessing from replacement chars.
+    let mut candidates = Vec::new();
+    if let Ok(utf8) = std::str::from_utf8(bytes) {
+        candidates.push(utf8.to_string());
+    }
+    for code_page in [unsafe { GetACP() }, unsafe { GetOEMCP() }] {
+        if let Some(decoded) = decode_windows_code_page(bytes, code_page) {
+            candidates.push(decoded);
+        }
+    }
+    candidates
+        .into_iter()
+        .find(|candidate| parse_tcp_timestamps_enabled(candidate).is_some())
+        .unwrap_or_else(|| String::from_utf8_lossy(bytes).into_owned())
+}
+
+#[cfg(windows)]
+fn decode_windows_code_page(bytes: &[u8], code_page: u32) -> Option<String> {
+    if bytes.is_empty() || bytes.len() > i32::MAX as usize {
+        return None;
+    }
+    let length = unsafe {
+        MultiByteToWideChar(
+            code_page,
+            0,
+            bytes.as_ptr(),
+            bytes.len() as i32,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if length <= 0 {
+        return None;
+    }
+    let mut wide = vec![0u16; length as usize];
+    let written = unsafe {
+        MultiByteToWideChar(
+            code_page,
+            0,
+            bytes.as_ptr(),
+            bytes.len() as i32,
+            wide.as_mut_ptr(),
+            length,
+        )
+    };
+    if written <= 0 {
+        return None;
+    }
+    String::from_utf16(&wide[..written as usize]).ok()
+}
+
+#[cfg(not(windows))]
+fn decode_netsh_output(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
 }
 
 #[cfg(windows)]
@@ -3799,11 +3872,11 @@ fn cleanup_old_runtime_dirs(runtime_root: &Path, keep: &Path) {
 mod tests {
     use super::{
         build_winws_launch, command_line_references_runtime_root, copy_dir_recursive,
-        disable_state_after_cleanup, expand_strategy_vars, extract_winws_command,
-        is_deprecated_strategy, normalize_runtime_dns_answers, parse_tcp_timestamps_enabled,
-        powershell_single_quote, profile_launch_report, requires_tcp_timestamps,
-        runtime_root_command_prefix, runtime_status_from_cleanup_state, split_windows_args,
-        tcp_timestamp_lease_markers, validate_strategy_profile_scope,
+        decode_netsh_output, disable_state_after_cleanup, expand_strategy_vars,
+        extract_winws_command, is_deprecated_strategy, normalize_runtime_dns_answers,
+        parse_tcp_timestamps_enabled, powershell_single_quote, profile_launch_report,
+        requires_tcp_timestamps, runtime_root_command_prefix, runtime_status_from_cleanup_state,
+        split_windows_args, tcp_timestamp_lease_markers, validate_strategy_profile_scope,
         windivert_driver_path_is_app_owned, windivert_report_has_running_driver,
         windivert_service_name_is_safe, write_runtime_profile_ipset, ServiceClient,
     };
@@ -3853,7 +3926,33 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             parse_tcp_timestamps_enabled("RFC 1323 Timestamps : disabled"),
             Some(false)
         );
+        assert_eq!(
+            parse_tcp_timestamps_enabled("RFC 1323 Метки времени : отключено"),
+            Some(false)
+        );
+        assert_eq!(
+            parse_tcp_timestamps_enabled("RFC 1323 Метки времени : включено"),
+            Some(true)
+        );
         assert_eq!(parse_tcp_timestamps_enabled("unrelated output"), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn netsh_oem_and_utf8_output_are_decoded_before_parsing() {
+        let cp866_disabled: &[u8] = &[
+            82, 70, 67, 32, 49, 51, 50, 51, 32, 140, 165, 226, 170, 168, 32, 162, 224, 165, 172,
+            165, 173, 168, 32, 58, 32, 174, 226, 170, 171, 238, 231, 165, 173, 174,
+        ];
+        assert_eq!(
+            parse_tcp_timestamps_enabled(&decode_netsh_output(cp866_disabled)),
+            Some(false)
+        );
+        let utf8_enabled = "RFC 1323 Метки времени : включено".as_bytes();
+        assert_eq!(
+            parse_tcp_timestamps_enabled(&decode_netsh_output(utf8_enabled)),
+            Some(true)
+        );
     }
 
     #[test]

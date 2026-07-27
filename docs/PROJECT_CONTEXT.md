@@ -70,6 +70,15 @@ Confirmed local install mismatch:
 - Discord remains unconfirmed. Remote Windows 10 evidence for existing variants 2/4/5/6 was Discord Web reset/TLS protocol errors and Discord Desktop `1.0.9249` staying at `Checking for updates…`; cleanup passed after every run.
 
 ## Current Stabilization Changes
+- The remote Discord-only test of installer `D3C2312F...` reached the fail-closed
+  TCP-timestamps prerequisite but could not parse `netsh interface tcp show
+  global`, although the same Windows 10 host reported `RFC 1323 Timestamps :
+  disabled` when run interactively. The reader now captures raw bytes, tries
+  valid UTF-8 plus the active ANSI/OEM Windows code pages through
+  `MultiByteToWideChar`, and parses the locale-invariant `RFC 1323` row with
+  English and Russian enabled/disabled values. The prerequisite remains
+  fail-closed when the row or state is unknown. No engine arguments or engine
+  files changed.
 - The direct `winws.exe` transition had skipped `service.bat status_zapret` from v1.0. The audited BAT invokes it before every launch and enables Windows TCP timestamps, while the direct launcher previously did not. For existing arguments containing `--dpi-desync-fooling=ts`, the app now temporarily restores that prerequisite through a narrow UAC helper, records a runtime lease, and restores the prior disabled state on Disable/Exit or a recovered stale lease. It does not alter `fake_tls_auto`, which has no `ts` argument.
 - Offline parity tests use the existing Discord command files with a path containing spaces and verify direct argv preserves quoted path token boundaries, repeated `--new` filters, hostlists, ipsets, and the legacy timestamp prerequisite. No engine file, manifest hash, or DPI argument value changed.
 - When only YouTube is selected while the engine is disabled and the default strategy is still active, the UI selects the existing experimental `fake_tls_auto` recommendation. A saved manual strategy or an active/error engine is never changed automatically.
