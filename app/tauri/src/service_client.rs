@@ -67,6 +67,8 @@ const RUNTIME_IPSET_MAX_IPS_PER_DOMAIN: usize = 8;
 const RUNTIME_IPSET_MAX_TOTAL_IPS: usize = 16;
 const RUNTIME_DNS_RESOLVE_TIMEOUT: Duration = Duration::from_secs(5);
 pub const WINDIVERT_CLEANUP_ARG: &str = "--zapret-manager-cleanup-windivert";
+pub const TCP_TIMESTAMPS_ARG: &str = "--zapret-manager-set-tcp-timestamps";
+const TCP_TIMESTAMP_LEASE_FILE: &str = ".zapret-manager-tcp-timestamps-lease";
 
 static STATE: OnceLock<Mutex<ServiceClient>> = OnceLock::new();
 
@@ -91,6 +93,7 @@ struct EngineProcess {
     pid: u32,
     runtime_dir: PathBuf,
     started_at: SystemTime,
+    tcp_timestamps_enabled_by_manager: bool,
 }
 
 impl ServiceClient {
@@ -221,6 +224,7 @@ impl ServiceClient {
 
         self.cleanup_orphan_runtime_processes("enable_preflight")?;
         self.cleanup_app_owned_windivert("enable_preflight")?;
+        restore_tcp_timestamp_leases(&self.data_root.join("engine-runtime"))?;
         let runtime_dir = match self.prepare_runtime_engine() {
             Ok(runtime_dir) => runtime_dir,
             Err(err) => {
@@ -354,6 +358,10 @@ impl ServiceClient {
                     self.log_debug("info", "engine_terminate_sent", &format!("pid={pid}"))?;
                 }
             }
+            let timestamp_lease = TcpTimestampLease::from_engine(&engine);
+            if let Err(err) = release_tcp_timestamp_lease(&timestamp_lease) {
+                cleanup_errors.push(err.to_string());
+            }
             runtime_dirs_to_remove.push(engine.runtime_dir.clone());
         }
 
@@ -362,6 +370,10 @@ impl ServiceClient {
         }
 
         if let Err(err) = self.cleanup_app_owned_windivert("disable_all") {
+            cleanup_errors.push(err.to_string());
+        }
+
+        if let Err(err) = restore_tcp_timestamp_leases(&self.data_root.join("engine-runtime")) {
             cleanup_errors.push(err.to_string());
         }
 
@@ -1088,7 +1100,23 @@ impl ServiceClient {
             ),
         )?;
 
-        let (pid, mut child, process_handle) = launch_winws(&launch)?;
+        let tcp_timestamp_lease = acquire_tcp_timestamp_lease(&launch.args, runtime_dir)?;
+        append_launch_log(
+            &launch.log_path,
+            &format!(
+                "legacy_bat_tcp_timestamps_required={}\nlegacy_bat_tcp_timestamps_enabled_by_manager={}\n",
+                requires_tcp_timestamps(&launch.args),
+                tcp_timestamp_lease.enabled_by_manager
+            ),
+        );
+
+        let (pid, mut child, process_handle) = match launch_winws(&launch) {
+            Ok(process) => process,
+            Err(err) => {
+                let _ = release_tcp_timestamp_lease(&tcp_timestamp_lease);
+                return Err(err);
+            }
+        };
         std::thread::sleep(std::time::Duration::from_millis(1200));
 
         if let Some(child_ref) = child.as_mut() {
@@ -1100,6 +1128,7 @@ impl ServiceClient {
                     &launch.log_path,
                     &format!("early_exit=true\nexit_status={status}\n"),
                 );
+                let _ = release_tcp_timestamp_lease(&tcp_timestamp_lease);
                 return Err(ZapretError::Operation(format!(
                     "Engine сразу завершился с кодом {:?}. Build: {}. В engine-launch.log есть preflight и argv_list. Если ошибка повторится, экспортируйте diagnostic-export.txt. Лог запуска: {}",
                     status.code(),
@@ -1119,6 +1148,7 @@ impl ServiceClient {
                 &launch.log_path,
                 &format!("early_exit=true\npid={pid}\nexit_code={exit_code:?}\n"),
             );
+            let _ = release_tcp_timestamp_lease(&tcp_timestamp_lease);
             return Err(ZapretError::Operation(format!(
                 "Engine был запущен, но процесс сразу завершился. Exit code: {:?}. Build: {}. В engine-launch.log есть preflight и argv_list; экспортируйте diagnostic-export.txt. Проверьте WinDivert/UAC/антивирус. Лог запуска: {}",
                 exit_code,
@@ -1133,6 +1163,7 @@ impl ServiceClient {
             pid,
             runtime_dir: runtime_dir.to_path_buf(),
             started_at: SystemTime::now(),
+            tcp_timestamps_enabled_by_manager: tcp_timestamp_lease.enabled_by_manager,
         })
     }
 
@@ -2074,6 +2105,221 @@ fn unescape_cmd_carets(value: &str) -> String {
     output
 }
 
+struct TcpTimestampLease {
+    enabled_by_manager: bool,
+    marker_path: Option<PathBuf>,
+}
+
+impl TcpTimestampLease {
+    fn none() -> Self {
+        Self {
+            enabled_by_manager: false,
+            marker_path: None,
+        }
+    }
+
+    fn from_engine(engine: &EngineProcess) -> Self {
+        Self {
+            enabled_by_manager: engine.tcp_timestamps_enabled_by_manager,
+            marker_path: engine
+                .tcp_timestamps_enabled_by_manager
+                .then(|| engine.runtime_dir.join(TCP_TIMESTAMP_LEASE_FILE)),
+        }
+    }
+}
+
+fn requires_tcp_timestamps(args: &[String]) -> bool {
+    args.iter().any(|arg| {
+        arg.strip_prefix("--dpi-desync-fooling=")
+            .is_some_and(|value| value.split(',').any(|part| part.eq_ignore_ascii_case("ts")))
+    })
+}
+
+fn acquire_tcp_timestamp_lease(args: &[String], runtime_dir: &Path) -> Result<TcpTimestampLease> {
+    if !requires_tcp_timestamps(args) || tcp_timestamps_enabled()? {
+        return Ok(TcpTimestampLease::none());
+    }
+
+    set_tcp_timestamps_with_elevation(true)?;
+    let marker_path = runtime_dir.join(TCP_TIMESTAMP_LEASE_FILE);
+    if let Err(source) = fs::write(&marker_path, "enabled_by_manager=true\n") {
+        let _ = set_tcp_timestamps_with_elevation(false);
+        return Err(zapret_manager_core::io_error(&marker_path, source));
+    }
+    Ok(TcpTimestampLease {
+        enabled_by_manager: true,
+        marker_path: Some(marker_path),
+    })
+}
+
+fn release_tcp_timestamp_lease(lease: &TcpTimestampLease) -> Result<()> {
+    if !lease.enabled_by_manager {
+        return Ok(());
+    }
+
+    #[cfg(windows)]
+    if let Some(marker_path) = &lease.marker_path {
+        if path_has_reparse_component(marker_path)? {
+            return Err(ZapretError::Operation(format!(
+                "Не удалось безопасно восстановить TCP timestamps через reparse point: {}.",
+                marker_path.display()
+            )));
+        }
+    }
+    set_tcp_timestamps_with_elevation(false)?;
+    if let Some(marker_path) = &lease.marker_path {
+        fs::remove_file(marker_path)
+            .map_err(|source| zapret_manager_core::io_error(marker_path, source))?;
+    }
+    Ok(())
+}
+
+fn restore_tcp_timestamp_leases(runtime_root: &Path) -> Result<()> {
+    #[cfg(windows)]
+    validate_windivert_cleanup_root(runtime_root)?;
+
+    let Ok(entries) = fs::read_dir(runtime_root) else {
+        return Ok(());
+    };
+
+    let markers = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("run-"))
+        })
+        .map(|path| path.join(TCP_TIMESTAMP_LEASE_FILE))
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+
+    if markers.is_empty() {
+        return Ok(());
+    }
+
+    for marker_path in &markers {
+        #[cfg(windows)]
+        if path_has_reparse_component(marker_path)? {
+            return Err(ZapretError::Operation(format!(
+                "Не удалось безопасно восстановить TCP timestamps через reparse point: {}.",
+                marker_path.display()
+            )));
+        }
+        let marker = fs::read_to_string(marker_path)
+            .map_err(|source| zapret_manager_core::io_error(marker_path, source))?;
+        if marker != "enabled_by_manager=true\n" {
+            return Err(ZapretError::Operation(format!(
+                "Не удалось безопасно восстановить TCP timestamps: некорректный lease marker {}.",
+                marker_path.display()
+            )));
+        }
+    }
+
+    set_tcp_timestamps_with_elevation(false)?;
+    for marker_path in markers {
+        fs::remove_file(&marker_path)
+            .map_err(|source| zapret_manager_core::io_error(&marker_path, source))?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn tcp_timestamps_enabled() -> Result<bool> {
+    let mut command = Command::new("netsh.exe");
+    command.args(["interface", "tcp", "show", "global"]);
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command.output().map_err(|source| {
+        zapret_manager_core::io_error("netsh interface tcp show global", source)
+    })?;
+    if !output.status.success() {
+        return Err(ZapretError::Operation(format!(
+            "Не удалось проверить TCP timestamps: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    parse_tcp_timestamps_enabled(&String::from_utf8_lossy(&output.stdout)).ok_or_else(|| {
+        ZapretError::Operation(
+            "Не удалось определить состояние TCP timestamps; запуск стратегии отменён, чтобы сохранить обратимость."
+                .to_string(),
+        )
+    })
+}
+
+#[cfg(not(windows))]
+fn tcp_timestamps_enabled() -> Result<bool> {
+    Ok(true)
+}
+
+fn parse_tcp_timestamps_enabled(output: &str) -> Option<bool> {
+    output.lines().find_map(|line| {
+        let normalized = line.trim().to_ascii_lowercase();
+        if !normalized.contains("timestamp") {
+            return None;
+        }
+        if normalized.contains("enabled") {
+            Some(true)
+        } else if normalized.contains("disabled") {
+            Some(false)
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(windows)]
+fn set_tcp_timestamps_with_elevation(enabled: bool) -> Result<()> {
+    if is_elevated() {
+        return set_tcp_timestamps_direct(enabled);
+    }
+    runas_self_tcp_timestamps_and_wait(enabled)
+}
+
+#[cfg(not(windows))]
+fn set_tcp_timestamps_with_elevation(_enabled: bool) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(windows)]
+fn set_tcp_timestamps_direct(enabled: bool) -> Result<()> {
+    let state = if enabled {
+        "timestamps=enabled"
+    } else {
+        "timestamps=disabled"
+    };
+    let mut command = Command::new("netsh.exe");
+    command.args(["interface", "tcp", "set", "global", state]);
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command.output().map_err(|source| {
+        zapret_manager_core::io_error("netsh interface tcp set global", source)
+    })?;
+    if !output.status.success() {
+        return Err(ZapretError::Operation(format!(
+            "Не удалось изменить TCP timestamps: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    if tcp_timestamps_enabled()? != enabled {
+        return Err(ZapretError::Operation(
+            "TCP timestamps не подтвердили ожидаемое состояние после команды netsh.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn run_tcp_timestamps_cli(enabled: bool) -> i32 {
+    match set_tcp_timestamps_direct(enabled) {
+        Ok(()) => 0,
+        Err(_) => 2,
+    }
+}
+
+#[cfg(not(windows))]
+pub fn run_tcp_timestamps_cli(_enabled: bool) -> i32 {
+    0
+}
+
 fn launch_winws(launch: &WinwsLaunch) -> Result<(u32, Option<Child>, Option<isize>)> {
     verify_engine_integrity_for_launch(&launch.engine_root)?;
     append_launch_log(
@@ -2658,6 +2904,80 @@ pub fn run_windivert_cleanup_cli(runtime_root: PathBuf) -> i32 {
 #[cfg(not(windows))]
 pub fn run_windivert_cleanup_cli(_runtime_root: PathBuf) -> i32 {
     0
+}
+
+#[cfg(windows)]
+fn runas_self_tcp_timestamps_and_wait(enabled: bool) -> Result<()> {
+    let exe_path = std::env::current_exe()
+        .map_err(|source| zapret_manager_core::io_error("current_exe", source))?;
+    let exe_dir = exe_path.parent().unwrap_or_else(|| Path::new("."));
+    let operation = wide_null("runas");
+    let file = wide_null(&exe_path.to_string_lossy());
+    let directory = wide_null(&exe_dir.to_string_lossy());
+    let state = if enabled { "enabled" } else { "disabled" };
+    let parameters = wide_null(&quote_cmdline_args(&[TCP_TIMESTAMPS_ARG, state]));
+
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS,
+        hwnd: std::ptr::null_mut(),
+        lpVerb: operation.as_ptr(),
+        lpFile: file.as_ptr(),
+        lpParameters: parameters.as_ptr(),
+        lpDirectory: directory.as_ptr(),
+        nShow: SW_HIDE,
+        hInstApp: std::ptr::null_mut(),
+        lpIDList: std::ptr::null_mut(),
+        lpClass: std::ptr::null(),
+        hkeyClass: std::ptr::null_mut(),
+        dwHotKey: 0,
+        Anonymous: Default::default(),
+        hProcess: std::ptr::null_mut(),
+    };
+
+    let ok = unsafe { ShellExecuteExW(&mut info) };
+    if ok == 0 || info.hProcess.is_null() {
+        return Err(ZapretError::Operation(
+            "UAC-запрос для временной настройки TCP timestamps отменён или не запустился."
+                .to_string(),
+        ));
+    }
+
+    let wait = unsafe { WaitForSingleObject(info.hProcess, CLEANUP_WAIT_MS) };
+    if wait == WAIT_TIMEOUT {
+        unsafe {
+            CloseHandle(info.hProcess);
+        }
+        return Err(ZapretError::Operation(
+            "Временная настройка TCP timestamps не завершилась за 60 секунд.".to_string(),
+        ));
+    }
+    if wait == WAIT_FAILED {
+        unsafe {
+            CloseHandle(info.hProcess);
+        }
+        return Err(last_win32_error(
+            "WaitForSingleObject(elevated TCP timestamps helper)",
+        ));
+    }
+
+    let mut exit_code = 0;
+    let exit_ok = unsafe { GetExitCodeProcess(info.hProcess, &mut exit_code) };
+    unsafe {
+        CloseHandle(info.hProcess);
+    }
+    if exit_ok == 0 {
+        return Err(ZapretError::Operation(
+            "Windows не вернул код UAC helper для TCP timestamps.".to_string(),
+        ));
+    }
+    if exit_code == 0 {
+        Ok(())
+    } else {
+        Err(ZapretError::Operation(format!(
+            "UAC helper TCP timestamps завершился с кодом {exit_code}."
+        )))
+    }
 }
 
 #[cfg(windows)]
@@ -3475,9 +3795,10 @@ mod tests {
     use super::{
         build_winws_launch, command_line_references_runtime_root, copy_dir_recursive,
         disable_state_after_cleanup, expand_strategy_vars, extract_winws_command,
-        is_deprecated_strategy, normalize_runtime_dns_answers, powershell_single_quote,
-        profile_launch_report, runtime_root_command_prefix, runtime_status_from_cleanup_state,
-        split_windows_args, validate_strategy_profile_scope, windivert_driver_path_is_app_owned,
+        is_deprecated_strategy, normalize_runtime_dns_answers, parse_tcp_timestamps_enabled,
+        powershell_single_quote, profile_launch_report, requires_tcp_timestamps,
+        runtime_root_command_prefix, runtime_status_from_cleanup_state, split_windows_args,
+        validate_strategy_profile_scope, windivert_driver_path_is_app_owned,
         windivert_report_has_running_driver, windivert_service_name_is_safe,
         write_runtime_profile_ipset, ServiceClient,
     };
@@ -3507,6 +3828,27 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         assert_eq!(args[1], "--wf-tcp=65535");
         assert!(!expanded.contains("service.bat"));
         assert!(!expanded.contains("start \"zapret: %~n0\" /min"));
+    }
+
+    #[test]
+    fn direct_launcher_keeps_the_legacy_timestamp_prerequisite_scoped_to_ts_strategies() {
+        assert!(requires_tcp_timestamps(&[
+            "--dpi-desync-fooling=ts".to_string(),
+            "--dpi-desync-fooling=ts,md5sig".to_string(),
+        ]));
+        assert!(!requires_tcp_timestamps(&[
+            "--dpi-desync-fooling=badseq".to_string(),
+            "--dpi-desync-fooling=md5sig".to_string(),
+        ]));
+        assert_eq!(
+            parse_tcp_timestamps_enabled("RFC 1323 Timestamps : enabled"),
+            Some(true)
+        );
+        assert_eq!(
+            parse_tcp_timestamps_enabled("RFC 1323 Timestamps : disabled"),
+            Some(false)
+        );
+        assert_eq!(parse_tcp_timestamps_enabled("unrelated output"), None);
     }
 
     #[test]
@@ -3780,6 +4122,36 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
             if strategy == "telegram_web_runtime_dup" {
                 assert!(launch.args.iter().any(|arg| arg == "--dup=1"));
                 assert!(launch.args.iter().any(|arg| arg == "--dup-cutoff=n1"));
+            }
+
+            if matches!(strategy, "alt" | "alt3" | "simple_fake") {
+                assert!(
+                    requires_tcp_timestamps(&launch.args),
+                    "{strategy} must preserve the legacy ts prerequisite"
+                );
+                assert!(
+                    launch
+                        .args
+                        .iter()
+                        .filter(|arg| arg.as_str() == "--new")
+                        .count()
+                        >= 6,
+                    "{strategy} must preserve repeated filter boundaries"
+                );
+                assert!(
+                    launch
+                        .args
+                        .iter()
+                        .any(|arg| arg.contains("list-general.txt"))
+                        && launch.args.iter().any(|arg| arg.contains("ipset-all.txt")),
+                    "{strategy} must preserve hostlist and ipset scopes"
+                );
+            }
+            if strategy == "fake_tls_auto" {
+                assert!(
+                    !requires_tcp_timestamps(&launch.args),
+                    "YouTube-verified fake_tls_auto must not gain a timestamp prerequisite"
+                );
             }
 
             assert!(

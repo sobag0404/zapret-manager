@@ -31,6 +31,9 @@ fn main() {
     if let Some(exit_code) = windivert_cleanup_cli_exit_code() {
         std::process::exit(exit_code);
     }
+    if let Some(exit_code) = tcp_timestamps_cli_exit_code() {
+        std::process::exit(exit_code);
+    }
     if !ensure_single_instance() {
         return;
     }
@@ -127,6 +130,25 @@ fn windivert_cleanup_cli_exit_code() -> Option<i32> {
     Some(service_client::run_windivert_cleanup_cli(
         std::path::PathBuf::from(runtime_root),
     ))
+}
+
+fn tcp_timestamps_cli_exit_code() -> Option<i32> {
+    let mut args = std::env::args_os();
+    let _exe = args.next();
+    let flag = args.next()?;
+    if flag != service_client::TCP_TIMESTAMPS_ARG {
+        return None;
+    }
+    let state = args.next()?;
+    let enabled = match state.to_str()? {
+        "enabled" => true,
+        "disabled" => false,
+        _ => return Some(2),
+    };
+    if args.next().is_some() {
+        return Some(2);
+    }
+    Some(service_client::run_tcp_timestamps_cli(enabled))
 }
 
 fn apply_remote_test_cdp_args(config: &mut Config) {
