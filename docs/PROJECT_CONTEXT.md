@@ -324,6 +324,19 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   and no production integration is approved. The repository contains only
   offline artifact/config verification tooling; no Tor binary, network
   downloader, or Tor launcher was added.
+- Remote feasibility attempt on Windows 10 18363 (2026-07-28) stopped
+  fail-closed before extraction or launch. Direct `web.telegram.org` timed out
+  (`curl` exit 28, about 16.1 seconds). The official stable Expert Bundle
+  15.0.19 (Tor 0.4.9.11), detached signature, and Tor-hosted signing key were
+  downloaded to temporary storage, but the independently pinned signing
+  fingerprint could not be re-read from the temporary keyring by the local Git
+  GnuPG verifier. Per the one-attempt gate, no Tor binary was accepted,
+  transferred, extracted, or started. Final remote checks confirmed zero Tor,
+  SOCKS listeners, and Edge PoC processes; no PoC runtime remained; global
+  proxy, DNS-state hash, and firewall-state hash matched the baseline. A retry
+  requires a clean official Gpg4win verifier as documented by the Tor Project
+  (or an equivalently isolated trusted verifier), with verifier hash pinned
+  before repeating the existing stage/signature gate.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
