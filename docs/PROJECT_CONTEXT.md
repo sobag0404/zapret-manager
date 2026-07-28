@@ -278,6 +278,14 @@ GitHub Actions:
   returned to disabled. Discord, Edge, harness, and tunnel were stopped. This
   remains test-network evidence and is not a global stable claim.
 
+## Latest PoC Tooling
+
+- Commit `0029a5e`: `tools: harden Tor PoC verification`.
+- CI passed: https://github.com/sobag0404/zapret-manager/actions/runs/30393136343.
+- Build Windows passed: https://github.com/sobag0404/zapret-manager/actions/runs/30393136392.
+- No product UI, engine parameters, bundled binaries, or protected installers
+  changed in this block.
+
 ## Manual Test Instructions After Fresh Build
 
 Install the new `ZapretManager v1.2-test.exe` over the old Program Files build only for lifecycle validation. Do not treat the current Telegram runtime candidates as an availability fix on the tested network, and do not change WhatsApp strategies in this validation block. Record the engine-off baseline and only the launch/cleanup state needed to confirm process, driver, and runtime removal.
