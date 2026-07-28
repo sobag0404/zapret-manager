@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-27
+Last updated: 2026-07-28
 
 ## Current Goal
 
@@ -324,29 +324,40 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   and no production integration is approved. The repository contains only
   offline artifact/config verification tooling; no Tor binary, network
   downloader, or Tor launcher was added.
-- Remote feasibility attempt on Windows 10 18363 (2026-07-28) stopped
-  fail-closed before extraction or launch. Direct `web.telegram.org` timed out
-  (`curl` exit 28, about 16.1 seconds). The official stable Expert Bundle
-  15.0.19 (Tor 0.4.9.11), detached signature, and Tor-hosted signing key were
-  downloaded to temporary storage, but the independently pinned signing
-  fingerprint could not be re-read from the temporary keyring by the local Git
-  GnuPG verifier. Per the one-attempt gate, no Tor binary was accepted,
-  transferred, extracted, or started. Final remote checks confirmed zero Tor,
-  SOCKS listeners, and Edge PoC processes; no PoC runtime remained; global
-  proxy, DNS-state hash, and firewall-state hash matched the baseline. A retry
-  requires a clean official Gpg4win verifier as documented by the Tor Project
-  (or an equivalently isolated trusted verifier), with verifier hash pinned
-  before repeating the existing stage/signature gate.
-- Follow-up verifier bootstrap attempt (2026-07-28) also stopped fail-closed.
-  The official Gpg4win 5.0.2 installer URL and publisher/SHA-256 value were
-  checked against the Gpg4win download page, but the direct official download
-  timed out at the enforced 180-second limit after only a partial transfer.
-  Gpg4win was not installed, the partial bootstrap directory was removed, and
-  final remote checks again confirmed zero Tor, SOCKS listeners, Edge PoC
-  processes, and PoC runtime; global proxy remained disabled. Do not retry this
-  source automatically. The next verifier attempt requires a user-supplied,
-  complete official Gpg4win installer or a known-good network path, followed by
-  the same SHA-256/AuthentiCode and Tor signature gates.
+- Final verifier bootstrap and vanilla Tor PoC on Windows 10 18363 completed
+  its safety gates. Official Gpg4win 5.0.2 was resumed only from
+  `files.gpg4win.org` with the same ETag; its published SHA-256 was
+  `11864cdc6dedd58c5448ab1c0868886e56bdad96972bc06dcd44b80f9e527051` and
+  Authenticode signer was `g10 Code GmbH`. The identical installer was copied
+  to the test PC, rehashed, installed silently, and the installed `gpgv.exe`
+  SHA-256 was `a79aa4d953298a3fcecd50634c4d5d2a66606587dce38d66dd7dfdf66a30c3f0`.
+- The official Tor Expert Bundle 15.0.19 archive SHA-256 was
+  `6ac067402c7b4a3dc37887ed3754b3914b67fdc220c966190683e9ccf91abf0f`.
+  Its detached signature passed `VALIDSIG` for the pinned Tor Browser
+  Developers primary fingerprint `EF6E286DDA85EA2A4BA7DE684E2C6E8793298290`;
+  isolated staging found exactly one `tor.exe` and no reparse points. The
+  bundle was never added to Git or product resources.
+- The verified vanilla Tor process bound only its app-owned loopback SOCKS
+  session, but did not reach bootstrap 100% within 180 seconds. It remained at
+  10% with repeated relay TLS `CONNECTRESET` and timeout failures. Therefore
+  no SOCKS curl or Edge Telegram Web access claim was made. This is a network
+  blocker for vanilla Tor, not evidence that Telegram Web is available.
+- Cleanup passed after the failed bootstrap: `tor=0`, Tor listeners=0,
+  Edge=0, and `winws.exe=0`; the entire app-owned PoC runtime and transferred
+  inputs were removed. Global proxy remains disabled with no server or PAC.
+  The test tool has no code path to modify Windows DNS or firewall; their
+  current state was read-only recorded. Gpg4win remains installed only as the
+  verified local signature tool.
+- PoC tooling was corrected for Windows: `gpgv` stderr is captured without
+  treating successful diagnostics as PowerShell failures, `VALIDSIG` is
+  checked against its primary fingerprint field, generated `torrc` is UTF-8
+  without BOM, and Tor notice logs use stdout redirected by the test launcher
+  instead of a path-sensitive torrc file sink.
+- Vanilla Tor must not be retried automatically on this test network. The only
+  safe next feasibility step is a separately approved official Tor bridge or
+  obfs4 configuration with a user-provided official bridge line. It remains
+  outside product integration and must repeat the same loopback, leak, and
+  cleanup gates.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.

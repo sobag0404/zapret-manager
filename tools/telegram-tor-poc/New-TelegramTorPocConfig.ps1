@@ -82,7 +82,7 @@ $torrc = $torrc.Replace("{{NOTICE_LOG}}", (Convert-ToTorPath (Join-Path $logRoot
 if ($torrc -match '\{\{[A-Z_]+\}\}') {
   throw "torrc contains unresolved placeholders."
 }
-$torrc | Set-Content -LiteralPath $torrcPath -Encoding UTF8
+[IO.File]::WriteAllText($torrcPath, $torrc, [Text.UTF8Encoding]::new($false))
 
 [pscustomobject]@{
   schema_version = "1"

@@ -21,6 +21,7 @@ describe("Telegram Tor PoC", () => {
     expect(config).toContain("ValidateOnly");
     expect(config).toContain("SpecialFolder]::LocalApplicationData");
     expect(config).toContain("ReparsePoint");
+    expect(config).toContain("UTF8Encoding]::new($false)");
     expect(config).not.toMatch(/Invoke-WebRequest|Start-BitsTransfer|Start-Process/i);
     expect(config).not.toMatch(/tor\.exe/i);
   });
@@ -32,6 +33,10 @@ describe("Telegram Tor PoC", () => {
     expect(verifier).toContain("EF6E286DDA85EA2A4BA7DE684E2C6E8793298290");
     expect(verifier).toContain("Get-FileHash");
     expect(verifier).toContain("VALIDSIG");
+    expect(verifier).toContain("$fields[-1]");
+    expect(verifier).toContain("Invoke-VerifiedExecutable");
+    expect(verifier).toContain("RedirectStandardError");
+    expect(verifier).toContain("ReadToEndAsync");
     expect(verifier).toContain("IsPathFullyQualified");
     expect(verifier).toContain("GpgvSha256");
     expect(verifier).toContain("Archive changed during verification");

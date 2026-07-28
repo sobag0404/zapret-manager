@@ -23,6 +23,65 @@ param(
 $ErrorActionPreference = "Stop"
 $expectedSigner = "EF6E286DDA85EA2A4BA7DE684E2C6E8793298290"
 
+function Convert-ToWindowsCommandLineArgument([string]$Value) {
+  if ($Value.Length -gt 0 -and $Value -notmatch '[\s"]') {
+    return $Value
+  }
+
+  $builder = [Text.StringBuilder]::new()
+  [void]$builder.Append('"')
+  $slashes = 0
+  foreach ($character in $Value.ToCharArray()) {
+    if ([int][char]$character -eq 92) {
+      $slashes++
+      continue
+    }
+    if ($character -eq '"') {
+      [void]$builder.Append([string]::new([char]92, ($slashes * 2 + 1)))
+      [void]$builder.Append('"')
+      $slashes = 0
+      continue
+    }
+    if ($slashes -gt 0) {
+      [void]$builder.Append([string]::new([char]92, $slashes))
+      $slashes = 0
+    }
+    [void]$builder.Append($character)
+  }
+  if ($slashes -gt 0) {
+    [void]$builder.Append([string]::new([char]92, ($slashes * 2)))
+  }
+  [void]$builder.Append('"')
+  return $builder.ToString()
+}
+
+function Invoke-VerifiedExecutable([string]$FilePath, [string[]]$Arguments) {
+  $startInfo = [Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $FilePath
+  $startInfo.Arguments = (($Arguments | ForEach-Object {
+    Convert-ToWindowsCommandLineArgument -Value $_
+  }) -join ' ')
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+
+  $process = [Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  if (-not $process.Start()) {
+    throw "Could not start verified executable: $FilePath"
+  }
+  $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+  $stderrTask = $process.StandardError.ReadToEndAsync()
+  $process.WaitForExit()
+  [Threading.Tasks.Task]::WaitAll(@($stdoutTask, $stderrTask))
+  return [pscustomobject]@{
+    ExitCode = $process.ExitCode
+    StdOut = $stdoutTask.Result
+    StdErr = $stderrTask.Result
+  }
+}
+
 function Resolve-RequiredFile([string]$Path, [string]$Label) {
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
     throw "$Label not found: $Path"
@@ -101,17 +160,24 @@ try {
   if ($actualGpgvHash -ne $GpgvSha256.ToUpperInvariant()) {
     throw "gpgv SHA-256 does not match the independently pinned value."
   }
-  $signatureStatus = & $resolvedGpgv --status-fd 1 --keyring $resolvedKeyring $resolvedSignature $resolvedArchive 2>&1
-  if ($LASTEXITCODE -ne 0) {
+  $signatureResult = Invoke-VerifiedExecutable -FilePath $resolvedGpgv -Arguments @(
+    '--status-fd', '1', '--keyring', $resolvedKeyring, $resolvedSignature, $resolvedArchive
+  )
+  if ($signatureResult.ExitCode -ne 0) {
     throw "Detached signature verification failed."
   }
+  $signatureStatus = @($signatureResult.StdOut -split "`r?`n")
 } finally {
   $gpgvLock.Dispose()
 }
 $validFingerprint = $null
 foreach ($statusLine in $signatureStatus) {
-  if ($statusLine -match '^\[GNUPG:\] VALIDSIG ([A-Fa-f0-9]{40}) ') {
-    $validFingerprint = $Matches[1].ToUpperInvariant()
+  $fields = @($statusLine -split ' ')
+  if ($fields.Count -ge 3 -and $fields[0] -eq '[GNUPG:]' -and $fields[1] -eq 'VALIDSIG') {
+    $primaryFingerprint = $fields[-1]
+    if ($primaryFingerprint -match '^[A-Fa-f0-9]{40}$') {
+      $validFingerprint = $primaryFingerprint.ToUpperInvariant()
+    }
     break
   }
 }
@@ -212,9 +278,11 @@ try {
       [IO.FileShare]::Read
     )
     try {
-      $extractOutput = & $resolvedExtractor -xf $stagedArchive -C $extractionRoot 2>&1
-      if ($LASTEXITCODE -ne 0) {
-        throw "Verified archive extraction failed: $($extractOutput -join [Environment]::NewLine)"
+      $extractResult = Invoke-VerifiedExecutable -FilePath $resolvedExtractor -Arguments @(
+        '-xf', $stagedArchive, '-C', $extractionRoot
+      )
+      if ($extractResult.ExitCode -ne 0) {
+        throw "Verified archive extraction failed: $($extractResult.StdErr)"
       }
     } finally {
       $archiveLock.Dispose()
