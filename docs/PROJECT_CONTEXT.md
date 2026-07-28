@@ -337,6 +337,16 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   requires a clean official Gpg4win verifier as documented by the Tor Project
   (or an equivalently isolated trusted verifier), with verifier hash pinned
   before repeating the existing stage/signature gate.
+- Follow-up verifier bootstrap attempt (2026-07-28) also stopped fail-closed.
+  The official Gpg4win 5.0.2 installer URL and publisher/SHA-256 value were
+  checked against the Gpg4win download page, but the direct official download
+  timed out at the enforced 180-second limit after only a partial transfer.
+  Gpg4win was not installed, the partial bootstrap directory was removed, and
+  final remote checks again confirmed zero Tor, SOCKS listeners, Edge PoC
+  processes, and PoC runtime; global proxy remained disabled. Do not retry this
+  source automatically. The next verifier attempt requires a user-supplied,
+  complete official Gpg4win installer or a known-good network path, followed by
+  the same SHA-256/AuthentiCode and Tor signature gates.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
