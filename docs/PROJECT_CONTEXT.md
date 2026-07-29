@@ -518,6 +518,22 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   using Tor Project's official bridge flow and the same verified Expert Bundle;
   record only sanitized bootstrap/SOCKS/Edge results and perform the same
   cleanup. Do not integrate routed mode into the product without that proof.
+- With an active interactive RDP session available on 2026-07-30, the same
+  single WebTunnel `ver=0.0.6` candidate was run through a temporary
+  scheduled task instead of the SSH background launcher. The task wrote an
+  atomic `started` state, completed the archive/hash/`VALIDSIG` gates, and
+  returned the specific sanitized result `webtunnel_bootstrap_timeout` after
+  four minutes. It never reached SOCKS HTTPS or the Edge Telegram check.
+  `ver=0.0.4` was not tried because the result was a transport timeout, not an
+  explicit lyrebird compatibility error.
+- The interactive task, status/log files, staging, bridge configuration, and
+  local chunks were removed after the result. Scoped verification confirmed
+  `tor.exe`, `lyrebird.exe`, `winws.exe`, and the loopback SOCKS listener were
+  absent; the global proxy/PAC state remained disabled. This proves neither
+  success nor a universal WebTunnel failure, only that the supplied official
+  bridge did not bootstrap from this test network. Do not make further
+  unattended transport attempts automatically; a new user-authorized bridge
+  requires a separate bounded proof before product consideration.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
 - Start with manual `Следующая стратегия` and later `Подобрать автоматически`.
