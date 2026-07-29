@@ -467,6 +467,22 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   product until a successful remote proof exists. A future bridge retry must be
   a separately scoped test using current official Tor guidance and the same
   provenance, loopback, leak, and cleanup gates.
+- Snowflake is closed for this test network and must not be retried. The next
+  bounded candidate was reviewed against the current official Tor Project
+  bridge instructions: WebTunnel is supported by the Expert Bundle's
+  `lyrebird`, but Tor Project requires an individual WebTunnel bridge obtained
+  from its BridgeDB website, email, or Telegram channel. BridgeDB exposes a
+  WebTunnel option but its issuance flow requires a human CAPTCHA. This project
+  must not automate that CAPTCHA, scrape bridge lists, or substitute a
+  third-party bridge source. No WebTunnel/obfs4 process, archive staging, or
+  test-PC network action was started in this review.
+- The exact unblock is one manually obtained **WebTunnel bridge line** from
+  `https://bridges.torproject.org/`: open the official page, select
+  `webtunnel`, complete the CAPTCHA yourself, and provide only the resulting
+  `Bridge webtunnel ...` line to the coordinator through the existing private
+  test channel. Do not publish the bridge in GitHub or issue trackers. The
+  next PoC may then use that single line once, with the existing verified
+  Expert Bundle, isolated loopback SOCKS, Edge check, and cleanup gates.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
