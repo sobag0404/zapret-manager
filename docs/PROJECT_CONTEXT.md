@@ -449,6 +449,24 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   was interrupted by a reset SSH channel before PoC launch. This is a transport
   blocker only: no Tor, Snowflake, SOCKS, Edge, engine, proxy, DNS, or firewall
   change was made by the retry.
+- On 2026-07-29, a fresh chunked transfer with per-chunk SHA-256 verification
+  reconstructed the supplied Expert Bundle on the test PC. The full archive
+  matched the pinned SHA-256 and its detached signature produced `VALIDSIG`
+  against the pinned Tor Browser Developers primary fingerprint
+  `EF6E286DDA85EA2A4BA7DE684E2C6E8793298290`. The only official Snowflake
+  `torrc` example from Tor Project Support was then run once in an isolated
+  runtime: SOCKS was restricted to `127.0.0.1`, with no control, DNS, transit,
+  HTTP-tunnel, or system proxy listener. It did not reach bootstrap 100% within
+  four minutes, so no SOCKS HTTPS or Edge Telegram request was attempted.
+- Cleanup for that Snowflake PoC passed: its Tor/lyrebird processes, owned Edge
+  process, SOCKS listener, runtime/staging directory, and `winws.exe` count
+  were all zero afterward. The Windows proxy stayed disabled with no server or
+  PAC; the script's DNS and firewall baseline comparison matched. This is a
+  test-network transport blocker, not evidence that Telegram Web is available
+  through Tor. Do not add Snowflake, Tor binaries, or routed mode to the
+  product until a successful remote proof exists. A future bridge retry must be
+  a separately scoped test using current official Tor guidance and the same
+  provenance, loopback, leak, and cleanup gates.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
