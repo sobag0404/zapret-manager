@@ -415,6 +415,20 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   Restore test-PC SSH before the next step, then transfer the exact archive and
   `.asc`, obtain the official key, and complete SHA-256 plus `VALIDSIG` before
   any extraction or Snowflake launch.
+- SSH was later restored and the coordinator-supplied archive plus `.asc` were
+  copied to the test PC. The copied archive again matched the pinned SHA-256,
+  but the detached-signature gate stayed fail-closed: the official Tor WKD URL
+  timed out and the official documented GnuPG WKD lookup also failed to finish
+  within its bounded timeout. No pre-existing Tor signing key was present.
+  The transferred archive, signature, temporary GPG homes, and input directory
+  were removed without extraction. `tor.exe`, `lyrebird`, Edge, `winws.exe`,
+  and Tor listeners were zero afterward; proxy remained disabled and the
+  read-only DNS/firewall hashes matched the baseline.
+- The only safe unblock is a coordinator-supplied Tor Browser Developers
+  public key downloaded manually from the official link in Tor's verification
+  documentation. The next test must verify its pinned primary fingerprint
+  `EF6E286DDA85EA2A4BA7DE684E2C6E8793298290`, then rerun `gpgv` against the
+  existing archive and `.asc` before any extraction or Snowflake launch.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
