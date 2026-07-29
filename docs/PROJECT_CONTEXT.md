@@ -483,17 +483,27 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   test channel. Do not publish the bridge in GitHub or issue trackers. The
   next PoC may then use that single line once, with the existing verified
   Expert Bundle, isolated loopback SOCKS, Edge check, and cleanup gates.
-- A subsequently supplied pair of sensitive WebTunnel bridge configurations
-  was rejected before any staging or launch because its endpoint was inside an
-  IANA documentation-only IPv6 block and therefore cannot be used as a global
-  bridge destination. The bridge strings were not written to the repository,
-  logs, or this context file. This is an input-validity blocker, not a failed
-  WebTunnel transport test. Request a fresh unredacted BridgeDB WebTunnel line
-  through the private test channel; validate that its endpoint is globally
-  routable before the single permitted `ver=0.0.6` PoC. Only use the same
-  bridge's `ver=0.0.4` form if `0.0.6` produces an explicit compatibility
-  error from the verified bundled `lyrebird`.
+- A subsequently supplied pair of sensitive WebTunnel bridge configurations is
+  eligible for the single remote PoC. The earlier endpoint-based rejection was
+  incorrect: Tor Project's WebTunnel documentation states that the IPv6 field
+  in a bridge line is randomly generated and never used; the transport connects
+  through the URL parameter. The bridge strings remain ephemeral and must not
+  be written to the repository, ordinary logs, or this context file. Test
+  `ver=0.0.6` first; use the same bridge's `ver=0.0.4` form only after an
+  explicit compatibility error from the verified bundled `lyrebird`.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
+- The first bounded WebTunnel execution was interrupted by the remote control
+  channel after the verified archive and signature gates. The isolated runner
+  exited without its status file, so it produced no trustworthy bootstrap,
+  SOCKS, or Edge Telegram result and did not qualify for a `ver=0.0.4`
+  fallback. Its staging/runtime was then removed. Scoped checks found no
+  `tor.exe`, `lyrebird.exe`, `winws.exe`, loopback SOCKS listener, global proxy
+  server, or PAC afterward. The sensitive bridge configuration was removed
+  from both machines and was not committed or logged. This is a remote harness
+  observability blocker, not evidence that WebTunnel succeeded or failed on
+  the test network. The next attempt must first make result persistence robust
+  to SSH disconnects, then rerun only `ver=0.0.6` with the same provenance and
+  cleanup gates.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
 - Start with manual `Следующая стратегия` and later `Подобрать автоматически`.
