@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-28
+Last updated: 2026-07-30
 
 ## Current Goal
 
@@ -534,6 +534,25 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   bridge did not bootstrap from this test network. Do not make further
   unattended transport attempts automatically; a new user-authorized bridge
   requires a separate bounded proof before product consideration.
+- Tor/WebTunnel transport research is closed by product decision. Do not retry
+  Snowflake, WebTunnel, or request another bridge for this project line.
+- Remote Zapret Manager stability smoke on 2026-07-30 used the installed v1.2.0
+  application (SHA256 `16BA7353F5CF67152F542BCDD89938C94397C605985424D0B83BC2ACB622188F`)
+  in an isolated interactive test session. The app started its managed engine
+  for YouTube-only with existing `fake_tls_auto`; headless Edge loaded YouTube
+  without an `ERR_*` page and returned a YouTube title. After Disable, scoped
+  `winws.exe=0`, running WinDivert services=0, and runtime directories=0.
+- The same smoke started Discord-only with existing `alt`. Headless Edge loaded
+  Discord without an `ERR_*` page; official Discord Desktop `1.0.9249` started
+  six owned processes and established three HTTPS connections to Discord's
+  Cloudflare endpoints. This is connectivity evidence only, not a global
+  availability claim or authenticated-user test. Disable again removed scoped
+  `winws.exe`, running WinDivert, and runtime directories.
+- Closing the main window while Discord mode was enabled kept the app process
+  and managed `winws.exe` alive, as intended for close-to-tray behavior. The
+  subsequent in-app Disable completed cleanup. Tray Exit uses the same
+  `disable_all` cleanup path and is covered by the existing lifecycle unit
+  test; its native context-menu click was not automated through SSH.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
 - Start with manual `Следующая стратегия` and later `Подобрать автоматически`.
