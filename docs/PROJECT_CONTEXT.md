@@ -394,6 +394,14 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   to loopback, and repeat the direct/SOCKS/Edge/leak/cleanup checks. Do not
   attempt obfs4 without a manually supplied official bridge line; do not add
   either transport to the product before a successful remote proof.
+- A final official-endpoint audit on 2026-07-29 found no second Tor Project URL
+  for the Windows x86_64 Expert Bundle: the official Tor download page points
+  its stable Expert Bundle archive and detached signature only to
+  `archive.torproject.org`. The separate `dist.torproject.org` links on that
+  page are for the Tor source release, not the Expert Bundle. The PoC must not
+  guess an unlisted path or use a mirror. This closes automated bootstrap until
+  a coordinator supplies the complete archive, matching `.asc`, and official
+  key from the listed Tor Project source for the existing verification gate.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
