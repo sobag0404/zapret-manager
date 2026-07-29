@@ -483,6 +483,16 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   test channel. Do not publish the bridge in GitHub or issue trackers. The
   next PoC may then use that single line once, with the existing verified
   Expert Bundle, isolated loopback SOCKS, Edge check, and cleanup gates.
+- A subsequently supplied pair of sensitive WebTunnel bridge configurations
+  was rejected before any staging or launch because its endpoint was inside an
+  IANA documentation-only IPv6 block and therefore cannot be used as a global
+  bridge destination. The bridge strings were not written to the repository,
+  logs, or this context file. This is an input-validity blocker, not a failed
+  WebTunnel transport test. Request a fresh unredacted BridgeDB WebTunnel line
+  through the private test channel; validate that its endpoint is globally
+  routable before the single permitted `ver=0.0.6` PoC. Only use the same
+  bridge's `ver=0.0.4` form if `0.0.6` produces an explicit compatibility
+  error from the verified bundled `lyrebird`.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
