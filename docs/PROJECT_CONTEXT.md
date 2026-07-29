@@ -436,6 +436,12 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   cryptographically imported because the test-PC SSH/Tailscale connection
   timed out again before the archive, signature, or key transfer could start.
   No new test-PC process, listener, extraction, or system change occurred.
+- A later resumable transfer completed and the test PC confirmed the pinned
+  public-key fingerprint plus `VALIDSIG` for the archive. Extraction then
+  failed closed before launch: the verified Expert Bundle layout did not expose
+  the expected ready-to-use Snowflake bridge entry. No guessed bridge line was
+  used. The app-owned input and extraction directory were removed; `tor.exe`,
+  `lyrebird`, Edge, and `winws.exe` were all zero afterward.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
