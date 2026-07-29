@@ -366,6 +366,34 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   obfs4 configuration with a user-provided official bridge line. It remains
   outside product integration and must repeat the same loopback, leak, and
   cleanup gates.
+- The limited bridge/pluggable-transport follow-up was closed without launching
+  a transport. Official Tor documentation confirms that the Expert Bundle
+  contains `lyrebird` and that it implements obfs4, Snowflake, and WebTunnel;
+  Snowflake has an official sample bridge configuration, while obfs4 requires a
+  bridge obtained through Tor Project's bridge channels. The test PC and main
+  PC both timed out before receiving any bytes from the single official
+  `archive.torproject.org` Expert Bundle URL (20-second connection timeout).
+  No archive passed the existing SHA-256/signature gate, no `lyrebird` binary
+  was staged, and no bridge transport or Edge Telegram request was launched.
+- obfs4 was not attempted because this bounded unattended PoC has no
+  user-provided bridge line and must not automate Tor Project CAPTCHA, email,
+  Telegram, or bridge harvesting. No mirrors, proxy lists, or alternate binary
+  sources were used. The safe result is a technical blocker at verified
+  artifact acquisition, not a claim that Snowflake or obfs4 cannot work on the
+  test ISP.
+- Cleanup after the failed official download passed: the generated
+  `bridge-snowflake-*` run directory was removed; `tor.exe`, Edge, `winws.exe`,
+  and Tor-owned listeners were zero; global proxy remained disabled without a
+  server or PAC. The read-only DNS and firewall state hashes exactly matched
+  the pre-test baseline. No product, engine, installer, DNS, proxy, or firewall
+  setting changed.
+- A future coordinator-run retry is permitted only after a complete official
+  Expert Bundle archive, matching detached signature, and official signing key
+  are available locally on the test PC. It must rerun the existing provenance
+  gate, use exactly the official Snowflake configuration first, bind SOCKS only
+  to loopback, and repeat the direct/SOCKS/Edge/leak/cleanup checks. Do not
+  attempt obfs4 without a manually supplied official bridge line; do not add
+  either transport to the product before a successful remote proof.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
