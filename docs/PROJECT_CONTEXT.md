@@ -504,6 +504,20 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   the test network. The next attempt must first make result persistence robust
   to SSH disconnects, then rerun only `ver=0.0.6` with the same provenance and
   cleanup gates.
+- A final bounded retry added an atomic status file outside the removable
+  runtime, explicit absolute runner paths, and separate stdout/stderr targets.
+  The initial status write survived, but two hidden remote launcher processes
+  exited before their first status transition and before starting `tor` or
+  `lyrebird`; their redirected outputs were empty. The verified archive and
+  detached-signature gates completed, but no bootstrap, SOCKS, or Edge result
+  was produced. Staging, status files, temporary transport configuration, and
+  local chunks were deleted; scoped checks again found no Tor processes,
+  loopback listener, `winws.exe`, or global proxy/PAC change.
+- This closes unattended SSH-launched WebTunnel testing as a harness blocker.
+  The practical next step is a single interactive test directly on the test PC
+  using Tor Project's official bridge flow and the same verified Expert Bundle;
+  record only sanitized bootstrap/SOCKS/Edge results and perform the same
+  cleanup. Do not integrate routed mode into the product without that proof.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
 - Start with manual `Следующая стратегия` and later `Подобрать автоматически`.
