@@ -442,6 +442,13 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   the expected ready-to-use Snowflake bridge entry. No guessed bridge line was
   used. The app-owned input and extraction directory were removed; `tor.exe`,
   `lyrebird`, Edge, and `winws.exe` were all zero afterward.
+- The official Tor support Snowflake example was subsequently used as the only
+  permitted configuration source. Its first harness run passed the complete
+  signature gate but exposed a harness log-path bug before any bootstrap; the
+  temporary script was fixed and never committed. The retry's archive transfer
+  was interrupted by a reset SSH channel before PoC launch. This is a transport
+  blocker only: no Tor, Snowflake, SOCKS, Edge, engine, proxy, DNS, or firewall
+  change was made by the retry.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
