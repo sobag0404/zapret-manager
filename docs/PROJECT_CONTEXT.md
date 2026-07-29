@@ -429,6 +429,13 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   documentation. The next test must verify its pinned primary fingerprint
   `EF6E286DDA85EA2A4BA7DE684E2C6E8793298290`, then rerun `gpgv` against the
   existing archive and `.asc` before any extraction or Snowflake launch.
+- The coordinator supplied that public key on 2026-07-29. Its local file size
+  was 36,219 bytes, SHA-256 was
+  `14629A9F570FEA9ADAC141ABF0D89AB08F1EFECD0CBBE7B5841F4D82430BDDB9`,
+  and its armor comment named the pinned primary fingerprint. It was not yet
+  cryptographically imported because the test-PC SSH/Tailscale connection
+  timed out again before the archive, signature, or key transfer could start.
+  No new test-PC process, listener, extraction, or system change occurred.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
