@@ -402,6 +402,19 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   guess an unlisted path or use a mirror. This closes automated bootstrap until
   a coordinator supplies the complete archive, matching `.asc`, and official
   key from the listed Tor Project source for the existing verification gate.
+- The coordinator later supplied a manually downloaded, official-named Expert
+  Bundle archive and matching detached signature on the main PC. The archive
+  size was 22,325,312 bytes and its local SHA-256 matched the pinned value
+  `6ac067402c7b4a3dc37887ed3754b3914b67fdc220c966190683e9ccf91abf0f`.
+  The main PC has no local GPG verifier and must not install or run Tor-related
+  software; the detached-signature gate remains intentionally pending on the
+  test PC's verified Gpg4win installation.
+- On 2026-07-29 the test PC SSH/Tailscale endpoint timed out twice before any
+  transfer. No archive, signature, or key bytes were copied; no staging,
+  `tor.exe`, `lyrebird`, SOCKS listener, Edge process, or network PoC started.
+  Restore test-PC SSH before the next step, then transfer the exact archive and
+  `.asc`, obtain the official key, and complete SHA-256 plus `VALIDSIG` before
+  any extraction or Snowflake launch.
 - Next strategy-integration block must prioritize Telegram Web and WhatsApp Web first. Desktop apps are second-stage after Web is confirmed by remote tests.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
