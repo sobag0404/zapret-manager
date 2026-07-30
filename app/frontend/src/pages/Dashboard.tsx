@@ -15,7 +15,7 @@ const recommendedStrategies: Record<string, { name: string; detail: string }> = 
 };
 
 export function Dashboard() {
-  const { status, profiles, selectedProfiles, diagnostics, loading, settings } = useAppStore();
+  const { status, profiles, selectedProfiles, diagnostics, loading } = useAppStore();
   const errors = diagnostics.filter((item) => item.status === "error").length;
   const warnings = diagnostics.filter((item) => item.status === "warning").length;
   const engineIssue = diagnostics.find((item) => item.id === "engine_found" && item.status !== "ok");
@@ -80,7 +80,7 @@ export function Dashboard() {
         <StatusCard
           icon={Activity}
           label="Engine"
-          value={engineIssue ? "Ошибка" : recommendation?.name ?? settings?.engine_strategy ?? "ожидание"}
+          value={engineIssue ? "Ошибка" : recommendation?.name ?? "ожидание"}
           detail={engineIssue?.action ?? engineIssue?.problem ?? "Manifest и hash проверены"}
           tone={engineIssue ? "error" : "ok"}
         />
