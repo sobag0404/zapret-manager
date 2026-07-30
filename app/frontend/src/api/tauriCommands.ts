@@ -82,9 +82,6 @@ let pendingAppUpdate: Update | null = null;
 const mockProfiles: Profile[] = [
   profile("discord", "Discord", "Discord desktop, web and voice checks", "medium"),
   profile("youtube", "YouTube", "YouTube web and video checks", "medium"),
-  profile("telegram", "Telegram", "Telegram desktop and web checks", "medium"),
-  profile("whatsapp", "WhatsApp", "WhatsApp desktop, web and voice checks", "medium"),
-  profile("common", "Общий режим", "Общий профиль для всех поддерживаемых сервисов", "low"),
 ];
 
 let mockStatus: AppStatus = {
@@ -171,8 +168,6 @@ function mockDiagnostics(): DiagnosticReport {
     diag("internet", "Интернет проверка", "skipped", "Доступность интернета не подтверждена общей диагностикой. Запустите проверку доступности."),
     diag("discord", "Discord доступность", "skipped", "Включённый engine не подтверждает доступность Discord. Запустите проверку доступности."),
     diag("youtube", "YouTube доступность", "skipped", "Включённый engine не подтверждает доступность YouTube. Запустите проверку доступности."),
-    diag("telegram", "Telegram доступность", "skipped", "Доступность Telegram не подтверждена. Запустите Telegram/WhatsApp диагностику."),
-    diag("whatsapp", "WhatsApp доступность", "skipped", "Доступность WhatsApp не подтверждена. Запустите Telegram/WhatsApp диагностику."),
     diag("vpn", "Конфликт с VPN", "warning", "Если VPN включён, используйте разрешённый режим совместимости в настройках."),
     diag("proxy", "Конфликт с proxy не найден", "ok", "Proxy не менялся."),
     diag("antivirus", "Антивирус", "skipped", "Автоматически не опрашивается. Если запуск блокируется, добавьте папку приложения в исключения."),
@@ -234,12 +229,7 @@ export const tauriCommands = {
   runServiceConnectivityTests: () =>
     call<DiagnosticReport>("run_service_connectivity_tests", undefined, () => {
       const report = mockDiagnostics();
-      return { overall: "ok", items: report.items.filter((item) => ["internet", "discord", "youtube", "telegram", "whatsapp"].includes(item.id)) };
-    }),
-  runMessagingDiagnostics: () =>
-    call<DiagnosticReport>("run_messaging_diagnostics", undefined, () => {
-      const report = mockDiagnostics();
-      return { overall: "warning", items: report.items.filter((item) => ["telegram", "whatsapp", "engine_found", "admin"].includes(item.id)) };
+      return { overall: "ok", items: report.items.filter((item) => ["internet", "discord", "youtube"].includes(item.id)) };
     }),
   readUserLogs: () => call<string>("read_user_logs", undefined, () => userLog),
   exportDebugLogs: () => call<string>("export_debug_logs", undefined, () => "logs/diagnostic-export.txt"),

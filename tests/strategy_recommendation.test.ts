@@ -43,3 +43,10 @@ describe("Discord strategy recommendation", () => {
     expect(recommendedEngineStrategy({ ...disabledDiscordOnly, currentStrategy: "alt3" })).toBeNull();
   });
 });
+
+describe("supported mode recommendation", () => {
+  it("does not recommend a strategy for an unsupported or combined selection", () => {
+    expect(recommendedEngineStrategy({ ...disabledDiscordOnly, selectedProfiles: ["telegram"] })).toBeNull();
+    expect(recommendedEngineStrategy({ ...disabledDiscordOnly, selectedProfiles: ["discord", "youtube"] })).toBeNull();
+  });
+});

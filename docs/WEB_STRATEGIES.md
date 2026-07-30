@@ -1,5 +1,8 @@
 # Web Strategy Audit
 
+> Archived research only. Telegram and WhatsApp strategies are not exposed by
+> the current Discord/YouTube product manifest or GUI.
+
 ## Remote Evidence
 
 On the isolated Windows 10 test PC on 2026-07-26, both `telegram_web` and

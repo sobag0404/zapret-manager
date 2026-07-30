@@ -1,5 +1,9 @@
 # Roadmap
 
+> Current product scope is Discord and YouTube only. References to Telegram,
+> WhatsApp, and Common below are archived future research, not shipped modes or
+> release candidates.
+
 ## v1.2 stabilization
 
 - Stabilize engine start/stop lifecycle and tray Exit cleanup.

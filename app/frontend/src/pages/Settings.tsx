@@ -3,15 +3,6 @@ import { FormEvent, useEffect, useState } from "react";
 import { AppSettings } from "../api/tauriCommands";
 import { appActions, useAppStore } from "../store/appStore";
 
-const visibleEngineStrategies = [
-  ["telegram_web_phase0", "Telegram Web: Phase 0 / experimental"],
-  ["alt", "2 ALT / experimental / проверено на тестовой сети: Discord Web/Desktop"],
-  ["alt3", "4 ALT3 / unknown"],
-  ["simple_fake", "5 Simple Fake / unknown"],
-  ["general", "1 General / experimental"],
-  ["fake_tls_auto", "6 Fake TLS Auto / experimental / verified for YouTube Web on test network"],
-];
-
 export function Settings() {
   const { settings, loading } = useAppStore();
   const [draft, setDraft] = useState<AppSettings | null>(settings);
@@ -54,16 +45,8 @@ export function Settings() {
             <option value="experimental">experimental</option>
           </select>
         </label>
-        <label>
-          Стратегия engine
-          <select value={draft.engine_strategy} onChange={(event) => setDraft({ ...draft, engine_strategy: event.target.value })}>
-            {visibleEngineStrategies.map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-        </label>
         <div className="settings-note wide-field">
-          Автостарт, ручной путь к engine и путь к логам скрыты из v1.2: они останутся выключенными до полной безопасной реализации.
+          Стратегия выбирается автоматически: Discord использует 2 ALT, YouTube использует Fake TLS Auto. Ручной выбор и непроверенные варианты скрыты из этой сборки.
         </div>
       </section>
     </form>

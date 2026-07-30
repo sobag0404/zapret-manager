@@ -154,7 +154,10 @@ impl ServiceClient {
                     && path.file_name().and_then(|name| name.to_str())
                         != Some("profile.schema.json")
                 {
-                    profiles.push(zapret_manager_core::load_profile(&path)?);
+                    let profile = zapret_manager_core::load_profile(&path)?;
+                    if is_supported_profile(&profile.id) {
+                        profiles.push(profile);
+                    }
                 }
             }
         }
@@ -163,8 +166,13 @@ impl ServiceClient {
     }
 
     pub fn set_profile_enabled(&mut self, id: String, enabled: bool) -> Result<Vec<String>> {
+        if !is_supported_profile(&id) {
+            return Err(ZapretError::Operation(
+                "В этой сборке доступны только режимы Discord и YouTube.".to_string(),
+            ));
+        }
         if enabled && !self.enabled_profiles.contains(&id) {
-            self.enabled_profiles.push(id.clone());
+            self.enabled_profiles = vec![id.clone()];
             self.log_user(&format!("Выбран режим: {id}."))?;
             self.log_debug("info", "profile_selected", &id)?;
         } else if !enabled {
@@ -176,11 +184,19 @@ impl ServiceClient {
     }
 
     pub fn enable(&mut self, profiles: Vec<String>) -> Result<AppStatus> {
-        if profiles.is_empty() {
+        if profiles.len() != 1
+            || profiles
+                .iter()
+                .any(|profile| !is_supported_profile(profile))
+        {
             return Err(ZapretError::Operation(
-                "Выберите хотя бы один режим.".to_string(),
+                "Выберите один режим: Discord или YouTube. Их совместная работа пока не подтверждена отдельным тестом."
+                    .to_string(),
             ));
         }
+
+        self.settings.engine_strategy = recommended_strategy_for_profile(&profiles[0]).to_string();
+        self.write_settings()?;
 
         if self.enabled {
             self.disable_all()?;
@@ -533,18 +549,6 @@ impl ServiceClient {
                 if self.enabled { DiagnosticStatus::Warning } else { DiagnosticStatus::Skipped },
                 "Включённый engine не подтверждает доступность YouTube. Запустите проверку доступности и проверьте браузер.",
             ),
-            diag(
-                "telegram",
-                "Telegram доступность",
-                if self.enabled { DiagnosticStatus::Warning } else { DiagnosticStatus::Skipped },
-                "Доступность Telegram не подтверждена. Запустите Telegram/WhatsApp диагностику и проверьте приложение/браузер.",
-            ),
-            diag(
-                "whatsapp",
-                "WhatsApp доступность",
-                if self.enabled { DiagnosticStatus::Warning } else { DiagnosticStatus::Skipped },
-                "Доступность WhatsApp не подтверждена. Запустите Telegram/WhatsApp диагностику и проверьте приложение/браузер.",
-            ),
             DiagnosticItem {
                 id: "vpn".to_string(),
                 title: "Совместимость с VPN".to_string(),
@@ -601,29 +605,6 @@ impl ServiceClient {
         items.push(connectivity_item("internet", "one.one.one.one", 443));
         for (profile, host) in connectivity_targets() {
             items.push(connectivity_item(profile, host, 443));
-        }
-        DiagnosticReport::aggregate(items)
-    }
-
-    pub fn messaging_diagnostics(&self) -> DiagnosticReport {
-        let mut items = self.runtime_diagnostic_items();
-        for (profile, host) in connectivity_targets() {
-            if matches!(profile, "telegram" | "whatsapp") {
-                let dns = check_dns(host);
-                items.push(DiagnosticItem {
-                    id: format!("dns_{profile}_{host}").replace('.', "_"),
-                    title: format!("DNS {profile}: {host}"),
-                    status: if dns.ok {
-                        DiagnosticStatus::Ok
-                    } else {
-                        DiagnosticStatus::Error
-                    },
-                    problem: dns.problem,
-                    action: Some(dns.action),
-                });
-                items.push(connectivity_item(profile, host, 443));
-                items.push(tls_item(profile, host));
-            }
         }
         DiagnosticReport::aggregate(items)
     }
@@ -821,7 +802,6 @@ impl ServiceClient {
             .unwrap_or_else(|err| format!("windivert_check_error={err}"));
         let (_, engine_summary) = self.engine_process_summary();
         let endpoint_checks = diagnostic_report_text(self.connectivity_diagnostics());
-        let messaging_checks = diagnostic_report_text(self.messaging_diagnostics());
         let diagnostic_text = format!(
             "Zapret Manager diagnostic export\n\
              version={}\n\
@@ -835,7 +815,6 @@ impl ServiceClient {
              windivert_driver_state={}\n\
              latest_launch_log={}\n\n\
              [endpoint checks]\n{}\n\n\
-             [telegram whatsapp checks]\n{}\n\n\
              [user.log tail]\n{}\n\n\
              [debug.jsonl tail]\n{}\n\n\
              [engine-launch.log tail]\n{}\n",
@@ -861,7 +840,6 @@ impl ServiceClient {
                 ))
                 .unwrap_or_else(|| "not_found".to_string()),
             endpoint_checks,
-            messaging_checks,
             user_log,
             debug_log,
             launch_log
@@ -2466,34 +2444,20 @@ struct EngineReadiness {
 
 fn normalized_engine_strategy(strategy: &str) -> String {
     match strategy {
-        "telegram_web_runtime_syndata"
-        | "telegram_web_runtime_wssize"
-        | "whatsapp_web_runtime_syndata"
-        | "telegram_web_runtime_dup"
-        | "whatsapp_web_runtime_wssize"
-        | "telegram_web_phase0"
-        | "telegram_web"
-        | "whatsapp_web"
-        | "alt"
-        | "alt2"
-        | "alt3"
-        | "alt4"
-        | "alt5"
-        | "alt6"
-        | "alt7"
-        | "alt8"
-        | "alt9"
-        | "alt10"
-        | "alt11"
-        | "alt12"
-        | "simple_fake"
-        | "simple_fake_alt"
-        | "simple_fake_alt2"
-        | "fake_tls_auto"
-        | "fake_tls_auto_alt"
-        | "fake_tls_auto_alt2"
-        | "fake_tls_auto_alt3" => strategy.to_string(),
+        "alt" | "fake_tls_auto" => strategy.to_string(),
         _ => "general".to_string(),
+    }
+}
+
+fn is_supported_profile(profile: &str) -> bool {
+    matches!(profile, "discord" | "youtube")
+}
+
+fn recommended_strategy_for_profile(profile: &str) -> &'static str {
+    match profile {
+        "discord" => "alt",
+        "youtube" => "fake_tls_auto",
+        _ => "general",
     }
 }
 
@@ -3597,18 +3561,7 @@ struct NetworkCheck {
 }
 
 fn connectivity_targets() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("discord", "discord.com"),
-        ("youtube", "youtube.com"),
-        ("telegram", "web.telegram.org"),
-        ("telegram", "t.me"),
-        ("telegram", "api.telegram.org"),
-        ("whatsapp", "web.whatsapp.com"),
-        ("whatsapp", "www.whatsapp.com"),
-        ("whatsapp", "static.whatsapp.net"),
-        ("whatsapp", "mmg.whatsapp.net"),
-        ("whatsapp", "g.whatsapp.net"),
-    ]
+    vec![("discord", "discord.com"), ("youtube", "youtube.com")]
 }
 
 fn connectivity_item(profile: &str, host: &str, port: u16) -> DiagnosticItem {
@@ -3682,7 +3635,7 @@ fn check_tcp(host: &str, port: u16) -> NetworkCheck {
     NetworkCheck {
         ok: false,
         problem: Some(format!("TCP {port} для {host} не отвечает.")),
-        action: "Выключите режим, выберите другую стратегию на главной странице и включите снова. Для Telegram/WhatsApp начните с ALT, ALT3, Simple Fake или ALT5.".to_string(),
+        action: "Выключите режим, убедитесь, что VPN не конфликтует, и повторите проверку. Если ошибка сохраняется, экспортируйте диагностический пакет.".to_string(),
     }
 }
 
@@ -3873,13 +3826,13 @@ mod tests {
     use super::{
         build_winws_launch, command_line_references_runtime_root, copy_dir_recursive,
         decode_netsh_output, decode_windows_code_page, disable_state_after_cleanup,
-        expand_strategy_vars, extract_winws_command, is_deprecated_strategy,
+        expand_strategy_vars, extract_winws_command, is_deprecated_strategy, is_supported_profile,
         normalize_runtime_dns_answers, parse_tcp_timestamps_enabled, powershell_single_quote,
-        profile_launch_report, requires_tcp_timestamps, runtime_root_command_prefix,
-        runtime_status_from_cleanup_state, split_windows_args, tcp_timestamp_lease_markers,
-        validate_strategy_profile_scope, windivert_driver_path_is_app_owned,
-        windivert_report_has_running_driver, windivert_service_name_is_safe,
-        write_runtime_profile_ipset, ServiceClient,
+        profile_launch_report, recommended_strategy_for_profile, requires_tcp_timestamps,
+        runtime_root_command_prefix, runtime_status_from_cleanup_state, split_windows_args,
+        tcp_timestamp_lease_markers, validate_strategy_profile_scope,
+        windivert_driver_path_is_app_owned, windivert_report_has_running_driver,
+        windivert_service_name_is_safe, write_runtime_profile_ipset, ServiceClient,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -4618,6 +4571,17 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
     }
 
     #[test]
+    fn product_scope_accepts_only_discord_and_youtube_profiles() {
+        assert!(is_supported_profile("discord"));
+        assert!(is_supported_profile("youtube"));
+        assert!(!is_supported_profile("telegram"));
+        assert!(!is_supported_profile("whatsapp"));
+        assert!(!is_supported_profile("common"));
+        assert_eq!(recommended_strategy_for_profile("discord"), "alt");
+        assert_eq!(recommended_strategy_for_profile("youtube"), "fake_tls_auto");
+    }
+
+    #[test]
     fn powershell_quote_escapes_single_quotes() {
         assert_eq!(powershell_single_quote("C:\\A'B"), "C:\\A''B");
     }
@@ -4823,9 +4787,6 @@ fn profile_order(id: &str) -> usize {
     match id {
         "discord" => 0,
         "youtube" => 1,
-        "telegram" => 2,
-        "whatsapp" => 3,
-        "common" => 4,
         _ => 99,
     }
 }

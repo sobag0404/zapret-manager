@@ -9,6 +9,7 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 describe("strategy manifest", () => {
   it("matches strategy file hashes and consent rules", () => {
     const manifest = JSON.parse(readFileSync(join(root, "strategies/manifest.json"), "utf8"));
+    expect([...new Set(manifest.entries.map((entry: { profile_id: string }) => entry.profile_id))].sort()).toEqual(["discord", "youtube"]);
     expect(manifest.schema_version).toBe("1");
     for (const entry of manifest.entries) {
       const body = readFileSync(join(root, "strategies", entry.path));

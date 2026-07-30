@@ -59,23 +59,20 @@ The installer artifact is produced by Tauri/NSIS under
 `target/release/bundle/nsis/`. The packaging script refuses a dirty worktree
 and embeds the checked-out Git commit in the build identity.
 
-The GUI starts normally. When the user presses `Включить`, the app launches the
-selected verified Flowseal `general*.bat` strategy with Windows UAC (`runas`).
-That `.bat` starts `winws.exe` exactly like the upstream working bundle. Closing
-the window hides the app to tray; choosing `Закрыть` in the tray menu stops the
-engine first.
+The current v1.2 product scope contains two experimental modes only: Discord
+and YouTube. When the user presses `Включить`, the app selects the verified
+test-network candidate for the selected single mode and starts `winws.exe`
+through Windows UAC (`runas`). Closing the window hides the app to tray;
+choosing `Выход` in the tray stops the engine first.
 
-Available engine strategies in the UI:
+Available product strategies:
 
-- `Telegram Web: Phase 0` (experimental, Telegram-only)
-- `General`
-- `ALT`
-- `ALT3`
-- `Simple Fake`
-- `Fake TLS Auto`
+- Discord: `2 ALT` (experimental; test-network evidence for Web/Desktop)
+- YouTube: `Fake TLS Auto` (experimental; test-network evidence for Web/video)
 
-If one strategy does not work for the current provider, turn the mode off,
-select another strategy on the main screen, and turn it on again.
+Discord and YouTube are started separately until a combined-mode test is
+confirmed. Telegram, WhatsApp, and routed-transport research are intentionally
+not part of this installer.
 
 ## CI
 

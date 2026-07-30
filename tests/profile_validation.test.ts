@@ -11,7 +11,9 @@ describe("profile schema", () => {
     const schema = JSON.parse(readFileSync(join(root, "profiles/profile.schema.json"), "utf8"));
     const ajv = new Ajv2020({ strict: false });
     const validate = ajv.compile(schema);
-    for (const file of readdirSync(join(root, "profiles")).filter((name) => name.endsWith(".json") && !name.includes("schema"))) {
+    const files = readdirSync(join(root, "profiles")).filter((name) => name.endsWith(".json") && !name.includes("schema"));
+    expect(files.sort()).toEqual(["discord.json", "youtube.json"]);
+    for (const file of files) {
       const data = JSON.parse(readFileSync(join(root, "profiles", file), "utf8"));
       expect(validate(data), JSON.stringify(validate.errors)).toBe(true);
       expect(data.notes).toContain("No low-level");

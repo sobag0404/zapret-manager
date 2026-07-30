@@ -8,6 +8,7 @@ const harnessFiles = [
   "tools/remote-test/Start-ZapretManagerCdp.ps1",
   "tools/remote-test/Stop-ZapretManagerCdp.ps1",
   "tools/remote-test/Export-ZapretManagerRemoteDiagnostics.ps1",
+  "tools/remote-test/Invoke-ZapretManagerCdp.ps1",
   "docs/REMOTE_TESTING.md",
 ];
 
@@ -29,6 +30,10 @@ describe("remote test harness", () => {
     expect(startScript).toContain("[Security.Principal.WindowsIdentity]::GetCurrent()");
     expect(startScript).not.toContain("$env:USERDOMAIN\\$env:USERNAME");
     expect(startScript).toContain("ValidateOnly");
+
+    const invokeScript = readFileSync(join(root, "tools/remote-test/Invoke-ZapretManagerCdp.ps1"), "utf8");
+    expect(invokeScript).toContain("http://127.0.0.1:$CdpPort/json/list");
+    expect(invokeScript).not.toMatch(/Start-Process/i);
   });
 
   it("scopes cleanup to Zapret Manager runtime instead of killing arbitrary winws", () => {

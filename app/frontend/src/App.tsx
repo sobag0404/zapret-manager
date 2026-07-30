@@ -1,10 +1,9 @@
-import { Activity, FileText, Gauge, LifeBuoy, RotateCcw, Settings as SettingsIcon, SlidersHorizontal } from "lucide-react";
+import { Activity, FileText, Gauge, LifeBuoy, RotateCcw, Settings as SettingsIcon } from "lucide-react";
 import { useEffect } from "react";
 import type { ReactElement } from "react";
 import { Dashboard } from "./pages/Dashboard";
 import { Diagnostics } from "./pages/Diagnostics";
 import { Logs } from "./pages/Logs";
-import { Profiles } from "./pages/Profiles";
 import { Recovery } from "./pages/Recovery";
 import { Settings } from "./pages/Settings";
 import { Updates } from "./pages/Updates";
@@ -12,7 +11,6 @@ import { appActions, PageId, useAppStore } from "./store/appStore";
 
 const pages = [
   { id: "dashboard", label: "Главная", icon: Gauge },
-  { id: "profiles", label: "Профили", icon: SlidersHorizontal },
   { id: "diagnostics", label: "Диагностика", icon: Activity },
   { id: "recovery", label: "Восстановление", icon: LifeBuoy },
   { id: "updates", label: "Обновления", icon: RotateCcw },
@@ -22,7 +20,6 @@ const pages = [
 
 const pageComponents: Record<PageId, () => ReactElement> = {
   dashboard: Dashboard,
-  profiles: Profiles,
   diagnostics: Diagnostics,
   recovery: Recovery,
   updates: Updates,

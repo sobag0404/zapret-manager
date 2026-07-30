@@ -9,7 +9,7 @@ import {
   tauriCommands,
 } from "../api/tauriCommands";
 
-export type PageId = "dashboard" | "profiles" | "diagnostics" | "recovery" | "updates" | "logs" | "settings";
+export type PageId = "dashboard" | "diagnostics" | "recovery" | "updates" | "logs" | "settings";
 
 interface AppState {
   status: AppStatus | null;
@@ -113,22 +113,10 @@ async function runAction<T>(key: string, action: () => Promise<T>): Promise<T | 
 }
 
 function nextSelectedProfiles(id: string, enabled: boolean): string[] {
-  const allProfileIds = state.profiles.map((profile) => profile.id);
-  const regularProfileIds = allProfileIds.filter((profileId) => profileId !== "common");
-
-  if (id === "common") {
-    return enabled ? allProfileIds : [];
-  }
-
-  if (!enabled) {
-    return state.selectedProfiles.filter((profileId) => profileId !== id && profileId !== "common");
-  }
-
-  const selected = Array.from(new Set([...state.selectedProfiles, id]));
-  if (regularProfileIds.every((profileId) => selected.includes(profileId))) {
-    return Array.from(new Set([...selected, "common"]));
-  }
-  return selected;
+  if (!enabled) return state.selectedProfiles.filter((profileId) => profileId !== id);
+  // The two verified modes use different audited command files. Keep one active at a time
+  // until a combined remote smoke has demonstrated that both services stay available.
+  return [id];
 }
 
 function defaultSettings(): AppSettings {
@@ -213,7 +201,7 @@ export const appActions = {
   },
   toggleEnabled: async () => {
     if (state.status?.status !== "running" && state.status?.status !== "error" && state.selectedProfiles.length === 0) {
-      setState({ error: "Выберите хотя бы один режим: Discord, YouTube, Telegram, WhatsApp или Общий." });
+      setState({ error: "Выберите один режим: Discord или YouTube." });
       return;
     }
     const status = await runAction("toggle", () => tauriCommands.toggleEnabled(state.selectedProfiles));
@@ -235,10 +223,6 @@ export const appActions = {
   },
   runConnectivity: async () => {
     const report = await runAction("connectivity", tauriCommands.runServiceConnectivityTests);
-    if (report) setState({ diagnostics: report.items });
-  },
-  runMessagingDiagnostics: async () => {
-    const report = await runAction("messaging-diagnostics", tauriCommands.runMessagingDiagnostics);
     if (report) setState({ diagnostics: report.items });
   },
   recoveryAction: async (id: string) => {
@@ -294,19 +278,6 @@ export const appActions = {
     setState({ settings: nextSettings, strategySelectedManually: manual, error: null });
     const saved = await runAction("settings", () => tauriCommands.saveSettings(nextSettings));
     if (saved) setState({ settings: saved, strategySelectedManually: manual });
-  },
-  nextProfileStrategy: async () => {
-    const profile = state.selectedProfiles.length === 1 ? state.selectedProfiles[0] : null;
-    const candidates =
-      profile === "telegram"
-        ? ["telegram_web_runtime_syndata", "telegram_web_runtime_wssize", "telegram_web_runtime_dup"]
-        : profile === "whatsapp"
-          ? ["whatsapp_web_runtime_syndata", "whatsapp_web_runtime_wssize"]
-          : ["alt", "alt3", "simple_fake", "general"];
-    const current = state.settings?.engine_strategy ?? "general";
-    const currentIndex = candidates.indexOf(current);
-    const engine_strategy = candidates[(currentIndex + 1) % candidates.length];
-    await appActions.setEngineStrategy(engine_strategy);
   },
 };
 

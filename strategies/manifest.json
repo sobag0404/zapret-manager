@@ -25,39 +25,6 @@
       "experimental_requires_consent": false
     },
     {
-      "id": "telegram-stable",
-      "profile_id": "telegram",
-      "channel": "stable",
-      "version": "1.0.0",
-      "updated_at": "2026-01-01T00:00:00Z",
-      "path": "stable/telegram.json",
-      "sha256": "84d2abc98c59844f92668152105cfa6757f23b60d0e5a4c3bd5c29ea318ef19f",
-      "trusted_source": "file:///local/strategies/",
-      "experimental_requires_consent": false
-    },
-    {
-      "id": "whatsapp-stable",
-      "profile_id": "whatsapp",
-      "channel": "stable",
-      "version": "1.0.0",
-      "updated_at": "2026-06-26T00:00:00Z",
-      "path": "stable/whatsapp.json",
-      "sha256": "0940edae809879ffb6deb2dad9ff18bc45f492949c15c409dec4c9c6779a79b1",
-      "trusted_source": "file:///local/strategies/",
-      "experimental_requires_consent": false
-    },
-    {
-      "id": "common-stable",
-      "profile_id": "common",
-      "channel": "stable",
-      "version": "1.0.0",
-      "updated_at": "2026-01-01T00:00:00Z",
-      "path": "stable/common.json",
-      "sha256": "12500d4c443693c9a3cb9d20fa5ee59b0c5605e90c9bf7f42f90a79e86d86af2",
-      "trusted_source": "file:///local/strategies/",
-      "experimental_requires_consent": false
-    },
-    {
       "id": "discord-experimental",
       "profile_id": "discord",
       "channel": "experimental",
@@ -76,39 +43,6 @@
       "updated_at": "2026-01-01T00:00:00Z",
       "path": "experimental/youtube.json",
       "sha256": "efda32f4745cc48ce503ab16cc729caf3d5dfed0b52a51e928d8926d041801f5",
-      "trusted_source": "file:///local/strategies/",
-      "experimental_requires_consent": true
-    },
-    {
-      "id": "telegram-experimental",
-      "profile_id": "telegram",
-      "channel": "experimental",
-      "version": "1.0.0",
-      "updated_at": "2026-01-01T00:00:00Z",
-      "path": "experimental/telegram.json",
-      "sha256": "fb0789ca94f619f4a4f32a329d5538d18164aeea3dba5e5b5114ffe6fefda01c",
-      "trusted_source": "file:///local/strategies/",
-      "experimental_requires_consent": true
-    },
-    {
-      "id": "whatsapp-experimental",
-      "profile_id": "whatsapp",
-      "channel": "experimental",
-      "version": "1.0.0",
-      "updated_at": "2026-06-26T00:00:00Z",
-      "path": "experimental/whatsapp.json",
-      "sha256": "c7ba7ca90594b32b3f69a6f55a683fb9660e83b62ad679a589ae3822b631e861",
-      "trusted_source": "file:///local/strategies/",
-      "experimental_requires_consent": true
-    },
-    {
-      "id": "common-experimental",
-      "profile_id": "common",
-      "channel": "experimental",
-      "version": "1.0.0",
-      "updated_at": "2026-01-01T00:00:00Z",
-      "path": "experimental/common.json",
-      "sha256": "d1d8db482adec2b1bc4a6a9f73f21575e4ced43f2e5d024435719583c62adbbb",
       "trusted_source": "file:///local/strategies/",
       "experimental_requires_consent": true
     }
