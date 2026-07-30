@@ -27,6 +27,9 @@ Confirmed local install mismatch:
 
 ## Recent Important Commits
 
+- `30d9fcd telegram: add user-owned relay gate` — deploy-gated relay source,
+  bounded transport framing, threat model, and CI coverage. CI and Build
+  Windows completed successfully; no Worker was deployed.
 - `351c9f7 docs: update project context`
 - `916ff52 engine: log launch argv preflight`
 - `e03322b diagnostics: prune strategies and add live status`
