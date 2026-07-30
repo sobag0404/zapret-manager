@@ -61,9 +61,6 @@ Any future Telegram Desktop routed mode must be a separate opt-in feature with:
 
 ## Test-PC Blocker
 
-The test PC accepts TCP on SSH port 22 but closes the connection before the SSH
-server banner/key exchange. Restarting `sshd` did not change that behavior.
-This is server-side behavior; the client configuration and private-key selection
-complete normally. Obtain `OpenSSH/Operational` events before another remote
-test attempt. No remote process, proxy, or engine was started in this audit
-block.
+SSH connectivity to the test PC was restored on 2026-07-30 after restarting
+Tailscale on the main PC. No remote process, proxy, or engine was started in
+this audit block because the upstream security gate remains rejected.

@@ -560,11 +560,9 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   not meet Zapret Manager's trust and cleanup requirements. It must not be
   integrated, downloaded, or presented as a local-only Telegram solution in
   v1.2. See `docs/TG_WS_PROXY_AUDIT.md`.
-- The test PC currently accepts TCP on port 22 then closes SSH before the server
-  banner/key exchange. Restarting `sshd` did not change it. Tailscale
-  reachability alone is insufficient for remote smoke testing; obtain
-  `OpenSSH/Operational` events before retrying. No remote proxy or engine was
-  started during this audit.
+- SSH connectivity to the test PC was restored on 2026-07-30 after restarting
+  Tailscale on the main PC. No remote proxy or engine was started during the
+  audit because its upstream security gate remains rejected.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
 - Start with manual `Следующая стратегия` and later `Подобрать автоматически`.
