@@ -2,7 +2,8 @@
 members = [
   "core",
   "service",
-  "app/tauri"
+  "app/tauri",
+  "telegram-transport"
 ]
 resolver = "2"
 

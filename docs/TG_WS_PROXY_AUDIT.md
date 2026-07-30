@@ -62,5 +62,22 @@ Any future Telegram Desktop routed mode must be a separate opt-in feature with:
 ## Test-PC Blocker
 
 SSH connectivity to the test PC was restored on 2026-07-30 after restarting
-Tailscale on the main PC. No remote process, proxy, or engine was started in
-this audit block because the upstream security gate remains rejected.
+Tailscale on the main PC.
+
+A project-owned Rust proof of concept was then built from the minimum reviewed
+transport logic. It does not embed or run the upstream application and removes
+CF/external fallback, mutable lists, updater, tray, telemetry-like statistics,
+and arbitrary destination input. It adds certificate verification, a strict
+loopback listener, official Telegram domain/CIDR allowlists, secret redaction,
+bounded sessions, and locked Rust dependencies.
+
+The proof did not pass the remote product gate. TLS WebSocket probes to both
+official DC2 hostnames and the official DC4 pair timed out before a WebSocket
+upgrade. Independent TCP 443 checks for the two DC2 hostnames also timed out.
+Because no official WebSocket transport could be reached, Telegram Desktop was
+not configured and no user traffic was passed through the component.
+
+The proof remains compile/test-only research and is not packaged by Tauri,
+exposed in the UI, or started by Zapret Manager. Integration is blocked until a
+test network can reach an official Telegram WebSocket endpoint without a
+third-party relay. See `docs/TELEGRAM_DESKTOP_TRANSPORT_SECURITY.md`.

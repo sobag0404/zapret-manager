@@ -15,6 +15,7 @@ on:
       - "engine/**"
       - "profiles/**"
       - "strategies/**"
+      - "telegram-transport/**"
       - "tests/**"
       - "package.json"
       - "pnpm-lock.yaml"
@@ -60,6 +61,9 @@ jobs:
 
       - name: Verify manifests and resource hashes
         run: pnpm test
+
+      - name: Verify locked Rust dependency graph
+        run: cargo metadata --locked --no-deps
 
       - name: Build Windows installer
         working-directory: app/tauri

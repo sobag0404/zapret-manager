@@ -54,7 +54,7 @@ jobs:
         run: pnpm build
 
       - name: Test Rust workspace
-        run: cargo test --workspace --all-features
+        run: cargo test --locked --workspace --all-features
 
       - name: Build Windows installer
         working-directory: app/tauri

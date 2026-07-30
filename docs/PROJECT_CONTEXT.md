@@ -561,8 +561,24 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   integrated, downloaded, or presented as a local-only Telegram solution in
   v1.2. See `docs/TG_WS_PROXY_AUDIT.md`.
 - SSH connectivity to the test PC was restored on 2026-07-30 after restarting
-  Tailscale on the main PC. No remote proxy or engine was started during the
-  audit because its upstream security gate remains rejected.
+  Tailscale on the main PC.
+- A project-owned Rust Telegram Desktop transport proof was built from the
+  minimum audited Flowseal protocol logic at immutable revision `21aaeb3...`.
+  It removes CF/external fallback, mutable lists, self-update, telemetry-like
+  statistics, and independent tray ownership. The proof uses loopback only,
+  validates TLS/WebSocket handshakes, restricts resolved addresses to official
+  Telegram CIDRs, redacts secrets, bounds sessions/buffers, and matches
+  upstream known-answer vectors. It is not packaged or exposed in the UI.
+- Remote official-path feasibility failed on 2026-07-30. The hash-matched PoC
+  executable `1DAAFAB5...FA8186` timed out before WebSocket upgrade for the
+  primary and alternate DC2 endpoints and the DC4 endpoint pair. Raw TCP 443
+  checks to both DC2 WSS hostnames also timed out. Telegram Desktop was not
+  configured, so messages/media were not tested.
+- Remote cleanup after the bounded proof passed: transport process=0,
+  `winws.exe`=0, running WinDivert=0, staging absent, and Windows global proxy
+  disabled with no server or PAC. The direct official-only transport is
+  blocked on this network and must not be integrated or claimed working.
+  Details: `docs/TELEGRAM_DESKTOP_TRANSPORT_SECURITY.md`.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
 - Start with manual `Следующая стратегия` and later `Подобрать автоматически`.
