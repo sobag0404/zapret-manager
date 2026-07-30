@@ -33,6 +33,7 @@ describe("remote test harness", () => {
 
     const invokeScript = readFileSync(join(root, "tools/remote-test/Invoke-ZapretManagerCdp.ps1"), "utf8");
     expect(invokeScript).toContain("http://127.0.0.1:$CdpPort/json/list");
+    expect(invokeScript).toContain("foreach ($candidate in $pages)");
     expect(invokeScript).not.toMatch(/Start-Process/i);
   });
 

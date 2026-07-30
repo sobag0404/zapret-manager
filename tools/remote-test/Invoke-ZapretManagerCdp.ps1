@@ -29,9 +29,14 @@ function Receive-CdpMessage([System.Net.WebSockets.ClientWebSocket]$Socket, [int
   }
 }
 
-$target = Invoke-RestMethod -Uri "http://127.0.0.1:$CdpPort/json/list" -TimeoutSec $TimeoutSeconds |
-  Where-Object { $_.type -eq "page" } |
-  Select-Object -First 1
+$target = $null
+$pages = Invoke-RestMethod -Uri "http://127.0.0.1:$CdpPort/json/list" -TimeoutSec $TimeoutSeconds
+foreach ($candidate in $pages) {
+  if ($candidate.type -eq "page") {
+    $target = $candidate
+    break
+  }
+}
 if (-not $target -or [string]::IsNullOrWhiteSpace($target.webSocketDebuggerUrl)) {
   throw "No inspectable Zapret Manager page is available on CDP port $CdpPort."
 }
@@ -40,11 +45,11 @@ $socket = New-Object System.Net.WebSockets.ClientWebSocket
 $cts = New-Object System.Threading.CancellationTokenSource
 try {
   $cts.CancelAfter([TimeSpan]::FromSeconds($TimeoutSeconds))
-  $socket.ConnectAsync([Uri]$target.webSocketDebuggerUrl, $cts.Token).GetAwaiter().GetResult()
+  $null = $socket.ConnectAsync([Uri]$target.webSocketDebuggerUrl, $cts.Token).GetAwaiter().GetResult()
   $request = @{ id = 1; method = "Runtime.evaluate"; params = @{ expression = $Expression; returnByValue = $true; awaitPromise = $true } } |
     ConvertTo-Json -Depth 8 -Compress
   $bytes = [Text.Encoding]::UTF8.GetBytes($request)
-  $socket.SendAsync(
+  $null = $socket.SendAsync(
     [ArraySegment[byte]]::new($bytes),
     [System.Net.WebSockets.WebSocketMessageType]::Text,
     $true,
@@ -62,9 +67,6 @@ try {
   }
   $message.result.result.value | ConvertTo-Json -Depth 12
 } finally {
-  if ($socket.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
-    $socket.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, "done", [Threading.CancellationToken]::None).GetAwaiter().GetResult()
-  }
   $socket.Dispose()
   $cts.Dispose()
 }

@@ -37,6 +37,16 @@ The current test artifact is always a separately named installer under
 - On 2026-07-30, both Discord-only and YouTube-only engine smokes completed
   cleanup with scoped `winws.exe=0`, app-owned running WinDivert services=0,
   and `engine-runtime` run directories=0.
+- The installer built from `d78704e` was installed on the test PC after a
+  matching SHA-256 check. Discord-only selected `2 ALT`, started cleanly, and
+  returned Discord Web HTTP 200. YouTube-only selected `Fake TLS Auto`; an
+  isolated Edge profile loaded a watch page, reached `readyState=4`, advanced
+  during playback, completed a seek to 60 seconds, and stayed playable after a
+  reload. Both modes were disabled cleanly afterward.
+- On the same installed build, closing the main window kept the application
+  process alive for the tray. CDP is intentionally torn down with the hidden
+  WebView, so tray Exit still needs a separate manual interactive smoke while
+  the engine is active.
 - Closing the main window intentionally keeps the application in the tray.
   Tray Exit must call the same disable/cleanup path before process exit.
 
@@ -85,9 +95,8 @@ the main PC.
 
 ## Next Release Gate
 
-1. Build a clean installer named `ZapretManager Discord-YouTube v1.2-test.exe`.
-2. Install it on the test PC and repeat Discord Web/Desktop plus YouTube
-   page/playback smoke.
-3. Verify Disable, close-to-tray, tray Exit, emergency disable, and stale
-   cleanup after restart.
-4. Push only after local checks and GitHub Actions CI/Build Windows are green.
+1. Verify tray Exit and emergency disable interactively with the engine active.
+2. Verify an authenticated Discord Desktop session, including media and voice,
+   only with explicit user consent; do not store account data in diagnostics.
+3. Repeat the installed-build smoke after any engine or lifecycle change.
+4. Keep GitHub Actions CI and Build Windows green before promoting a release.
