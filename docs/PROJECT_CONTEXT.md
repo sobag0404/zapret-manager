@@ -24,6 +24,15 @@ Never modify, delete, overwrite, or repackage:
 The current test artifact is always a separately named installer under
 `target/release/bundle/nsis/`.
 
+## Latest Test Build
+
+- Product commit `d78704e` was packaged as
+  `ZapretManager Discord-YouTube v1.2-test.exe`.
+- Installer SHA-256:
+  `6C28CEAD5B7FC4D8477BD1A81DC15B55A7D2862537A00D4D53E56883732D14DB`.
+- The installer was hash-verified before installation on the Windows 10 test
+  PC. Follow-up harness/context commit `1217829` passed CI and Build Windows.
+
 ## Confirmed Test-PC Evidence
 
 - Discord-only using existing `alt` (`2 ALT`) started the managed engine and
