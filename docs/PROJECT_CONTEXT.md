@@ -553,6 +553,18 @@ Use `docs/REMOTE_TESTING.md` and scripts under `tools/remote-test/` for reproduc
   subsequent in-app Disable completed cleanup. Tray Exit uses the same
   `disable_all` cleanup path and is covered by the existing lifecycle unit
   test; its native context-menu click was not automated through SSH.
+- Flowseal `tg-ws-proxy` was audited at upstream commit
+  `21aaeb3aba97ad3b0ae39c6540a7b1afd12a3f7e`. It is MIT licensed, but its
+  default CF fallback, mutable GitHub domain-list refresh, self-update flow,
+  unpinned transitive build dependencies, and independent process lifecycle do
+  not meet Zapret Manager's trust and cleanup requirements. It must not be
+  integrated, downloaded, or presented as a local-only Telegram solution in
+  v1.2. See `docs/TG_WS_PROXY_AUDIT.md`.
+- The test PC currently accepts TCP on port 22 then closes SSH before the server
+  banner/key exchange. Restarting `sshd` did not change it. Tailscale
+  reachability alone is insufficient for remote smoke testing; obtain
+  `OpenSSH/Operational` events before retrying. No remote proxy or engine was
+  started during this audit.
 - Focused Web strategy design and its remote test gate are documented in
   `docs/WEB_STRATEGIES.md`.
 - Start with manual `Следующая стратегия` and later `Подобрать автоматически`.
