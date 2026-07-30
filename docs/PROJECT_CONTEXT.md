@@ -212,6 +212,8 @@ Fresh local test installer for `2dba720`:
 
 GitHub Actions:
 
+- `ce7dbc1`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30537179301.
+- `ce7dbc1`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30537179346.
 - `4fc6bbc`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30264107702.
 - `4fc6bbc`: Build Windows passed, https://github.com/sobag0404/zapret-manager/actions/runs/30264107751.
 - `c595c8c`: CI passed, https://github.com/sobag0404/zapret-manager/actions/runs/30264157288.
