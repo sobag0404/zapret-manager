@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "corepack pnpm --dir app/frontend dev",
     "build": "corepack pnpm --dir app/frontend build",
+    "relay:check": "corepack pnpm --dir cloudflare/telegram-relay check && corepack pnpm --dir cloudflare/telegram-relay deploy:dry",
     "test": "vitest run",
     "tauri:dev": "cd app/tauri && cargo tauri dev",
     "tauri:build": "cd app/tauri && cargo tauri build",

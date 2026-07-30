@@ -10,6 +10,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "app/**"
+      - "cloudflare/telegram-relay/**"
       - "core/**"
       - "crates/**"
       - "engine/**"
@@ -61,6 +62,9 @@ jobs:
 
       - name: Verify manifests and resource hashes
         run: pnpm test
+
+      - name: Check Telegram relay Worker
+        run: pnpm relay:check
 
       - name: Verify locked Rust dependency graph
         run: cargo metadata --locked --no-deps

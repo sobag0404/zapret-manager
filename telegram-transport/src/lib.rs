@@ -2,6 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use zeroize::Zeroizing;
 
 pub mod protocol;
+pub mod relay;
 pub mod server;
 mod websocket;
 

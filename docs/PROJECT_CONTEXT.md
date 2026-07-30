@@ -4,9 +4,9 @@ Last updated: 2026-07-30
 
 ## Current Goal
 
-Zapret Manager v1.2: stabilize enable/disable/diagnostics around the local verified engine. Discord, Telegram, and WhatsApp remain unconfirmed. YouTube Web has limited test-network evidence only through the existing experimental `fake_tls_auto` variant.
+Zapret Manager v1.2: stabilize enable/disable/diagnostics around the local verified engine. Discord and YouTube have limited test-network evidence through existing experimental variants. Telegram and WhatsApp remain unavailable on the test network.
 
-This is a local Windows app. It is not a VPN, does not use a third-party traffic server, does not require an account, and does not collect telemetry.
+The released product is a local Windows app. It is not a VPN, does not require an account, does not collect telemetry, and does not route traffic through a third-party server. A separate user-owned Cloudflare relay is being evaluated for Telegram Desktop as an explicit opt-in routed mode; it is not integrated into the release.
 
 ## Protected Artifacts
 
@@ -52,6 +52,26 @@ Confirmed local install mismatch:
 
 ## Current Blockers
 
+- A deploy-gated Telegram Desktop relay PoC now has repository-owned Cloudflare
+  Worker source and a separate Rust relay connector. The Worker uses an
+  immutable Telegram DC/IP allowlist on TCP 443, rejects client-supplied
+  destinations and non-TLS ingress, requires a separate high-entropy token,
+  and has bounded messages, queues, rates, timeouts, and sessions. It contains
+  no runtime dependencies, telemetry, analytics binding, destination fetch,
+  updater, or mutable configuration. Worker/Rust relay framing uses 64 KiB
+  chunks with one acknowledged egress frame at a time, a priority ACK path,
+  four per-isolate sessions, and idempotent awaited socket cleanup.
+- The relay is intentionally absent from Tauri resources, production UI, and
+  release lifecycle until a test-PC Telegram Desktop smoke proves messages,
+  media, restart, listener/process removal, and proxy restoration. It must not
+  be presented as local-only: Cloudflare can observe network metadata and
+  forwards the encrypted MTProto stream over raw TCP to the selected Telegram
+  DC. The Worker-to-Telegram leg is not TLS.
+- No Cloudflare/Wrangler authentication is configured on this workstation, so
+  no Worker was deployed and no remote relay smoke was run. A public shared
+  proxy and temporary preview account are forbidden. The next gate is
+  user-owned Wrangler login, followed by a separately named test Worker,
+  secret binding, fail-closed request tests, and test-PC-only smoke.
 - Fresh remote evidence on the second PC confirms cleanup: after Disable, scoped `winws.exe=0`, app-owned WinDivert is removed, and runtime directories equal zero.
 - A newer Windows 10 remote test of installer `F59A3E3E5F3A797FE0ACF1103B372ABB4612146188D110A33326BA227A69D524` confirmed YouTube Web only with the existing experimental `fake_tls_auto`: HTTP 200, the main page and `jNQXAC9IVRw` watch page loaded, `readyState=4`, and playback advanced from 6.12 to 13.12 seconds in seven seconds. This is evidence for that test network only, not a stable claim.
 - The same test found Discord Web reset/TLS errors on existing variants 2/4/5/6. Official Discord Desktop `1.0.9249` remained at `Checking for updates…` after isolated 35–90 second restarts. Discord remains experimental and unconfirmed.

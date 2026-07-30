@@ -49,9 +49,15 @@ jobs:
         working-directory: app/frontend
         run: pnpm test
 
+      - name: Test workspace policies
+        run: pnpm test
+
       - name: Build frontend
         working-directory: app/frontend
         run: pnpm build
+
+      - name: Check Telegram relay Worker
+        run: pnpm relay:check
 
       - name: Test Rust workspace
         run: cargo test --locked --workspace --all-features

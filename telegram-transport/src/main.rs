@@ -5,7 +5,8 @@ use std::{
 };
 use zapret_manager_telegram_transport::{
     parse_secret,
-    server::{probe_official_websocket, status_json, TransportServer},
+    relay::{parse_relay_token, RelayCredentials, RelayEndpoint},
+    server::{probe_official_websocket, status_json, status_json_with_mode, TransportServer},
 };
 use zeroize::Zeroizing;
 
@@ -16,6 +17,8 @@ struct Arguments {
     status_file: PathBuf,
     probe_dc: Option<u16>,
     media: bool,
+    relay_endpoint_file: Option<PathBuf>,
+    relay_token_file: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -44,13 +47,39 @@ async fn run() -> Result<(), String> {
         return Err("secret file is too large".to_string());
     }
     let secret = parse_secret(secret_text.trim()).map_err(str::to_string)?;
-    let server = TransportServer::bind(arguments.port, secret)
-        .await
-        .map_err(|error| error.to_string())?;
+    let relay = match (
+        arguments.relay_endpoint_file.as_deref(),
+        arguments.relay_token_file.as_deref(),
+    ) {
+        (Some(endpoint_file), Some(token_file)) => {
+            let endpoint_text = read_bounded_text(endpoint_file, 2048, "relay endpoint")?;
+            let token_text = read_bounded_text(token_file, 512, "relay token")?;
+            let endpoint = RelayEndpoint::parse(endpoint_text.trim()).map_err(str::to_string)?;
+            let token = parse_relay_token(token_text.trim()).map_err(str::to_string)?;
+            Some(RelayCredentials::new(endpoint, token))
+        }
+        (None, None) => None,
+        _ => return Err("relay endpoint and token files must be supplied together".to_string()),
+    };
+    let upstream_mode = if relay.is_some() {
+        "user_relay"
+    } else {
+        "direct_official"
+    };
+    let server = match relay {
+        Some(credentials) => TransportServer::bind_relay(arguments.port, secret, credentials).await,
+        None => TransportServer::bind(arguments.port, secret).await,
+    }
+    .map_err(|error| error.to_string())?;
     let listen = server.local_addr().map_err(|error| error.to_string())?;
     write_status_atomic(
         &arguments.status_file,
-        &status_json(listen, &secret).map_err(|e| e.to_string())?,
+        &if upstream_mode == "user_relay" {
+            status_json_with_mode(listen, upstream_mode)
+        } else {
+            status_json(listen, &secret)
+        }
+        .map_err(|e| e.to_string())?,
     )?;
     eprintln!("event=transport_ready listen={listen}");
     server
@@ -69,6 +98,8 @@ fn parse_arguments(
     let mut status_file = None;
     let mut probe_dc = None;
     let mut media = false;
+    let mut relay_endpoint_file = None;
+    let mut relay_token_file = None;
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
         let argument = argument
@@ -94,11 +125,29 @@ fn parse_arguments(
                 );
             }
             "--media" => media = true,
+            "--relay-endpoint-file" => {
+                relay_endpoint_file = Some(PathBuf::from(next_value(
+                    &mut arguments,
+                    "--relay-endpoint-file",
+                )?));
+            }
+            "--relay-token-file" => {
+                relay_token_file = Some(PathBuf::from(next_value(
+                    &mut arguments,
+                    "--relay-token-file",
+                )?));
+            }
             _ => return Err(format!("unsupported argument: {argument}")),
         }
     }
     if probe_dc.is_none() && (secret_file.is_none() || status_file.is_none()) {
         return Err("--secret-file and --status-file are required".to_string());
+    }
+    if relay_endpoint_file.is_some() != relay_token_file.is_some() {
+        return Err("relay endpoint and token files must be supplied together".to_string());
+    }
+    if probe_dc.is_some() && relay_endpoint_file.is_some() {
+        return Err("relay files are not accepted in direct probe mode".to_string());
     }
     Ok(Arguments {
         port,
@@ -106,7 +155,20 @@ fn parse_arguments(
         status_file: status_file.unwrap_or_default(),
         probe_dc,
         media,
+        relay_endpoint_file,
+        relay_token_file,
     })
+}
+
+fn read_bounded_text(path: &Path, maximum: u64, label: &str) -> Result<Zeroizing<String>, String> {
+    let metadata = fs::metadata(path)
+        .map_err(|error| format!("{label} file could not be inspected: {error}"))?;
+    if !metadata.is_file() || metadata.len() > maximum {
+        return Err(format!("{label} file is invalid"));
+    }
+    fs::read_to_string(path)
+        .map(Zeroizing::new)
+        .map_err(|error| format!("{label} file could not be read: {error}"))
 }
 
 fn next_value(
@@ -167,6 +229,38 @@ mod tests {
         let parsed = parse_arguments(["--probe-dc".into(), "2".into()]).unwrap();
         assert_eq!(parsed.probe_dc, Some(2));
         assert!(parse_arguments(["--endpoint".into(), "example.com".into()]).is_err());
+    }
+
+    #[test]
+    fn relay_files_are_opt_in_and_must_be_supplied_together() {
+        let parsed = parse_arguments([
+            "--secret-file".into(),
+            "mtproxy-secret.txt".into(),
+            "--status-file".into(),
+            "status.json".into(),
+            "--relay-endpoint-file".into(),
+            "relay-endpoint.txt".into(),
+            "--relay-token-file".into(),
+            "relay-token.txt".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            parsed.relay_endpoint_file,
+            Some(PathBuf::from("relay-endpoint.txt"))
+        );
+        assert_eq!(
+            parsed.relay_token_file,
+            Some(PathBuf::from("relay-token.txt"))
+        );
+        assert!(parse_arguments([
+            "--secret-file".into(),
+            "mtproxy-secret.txt".into(),
+            "--status-file".into(),
+            "status.json".into(),
+            "--relay-endpoint-file".into(),
+            "relay-endpoint.txt".into(),
+        ])
+        .is_err());
     }
 
     #[test]

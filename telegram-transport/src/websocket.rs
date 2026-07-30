@@ -1,8 +1,12 @@
+use crate::{
+    relay::{build_relay_upgrade_request, RelayCredentials, RELAY_PROTOCOL},
+    TelegramTarget,
+};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rand::{rngs::OsRng, RngCore};
 use sha1::{Digest, Sha1};
 use std::{
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::Arc,
     time::Duration,
 };
@@ -17,8 +21,12 @@ use tokio_rustls::{
     rustls::{self, pki_types::ServerName, ClientConfig, RootCertStore},
     TlsConnector,
 };
+use zeroize::Zeroizing;
 
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_RELAY_PAYLOAD_BYTES: usize = 64 * 1024;
+const RELAY_DATA_FRAME: u8 = 0x01;
+const RELAY_ACK_FRAME: u8 = 0x02;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WebSocketError {
@@ -32,8 +40,12 @@ pub enum WebSocketError {
     Malformed,
     #[error("websocket upgrade was rejected")]
     InvalidUpgrade,
-    #[error("official Telegram endpoint did not resolve to a public address")]
+    #[error("upstream configuration is invalid")]
+    Configuration,
+    #[error("upstream endpoint did not resolve to an allowed address")]
     UnsafeDnsAnswer,
+    #[error("user relay connection failed")]
+    RelayUnavailable,
     #[error("upstream I/O failed: {0}")]
     Io(String),
     #[error("upstream operation timed out")]
@@ -44,20 +56,24 @@ pub struct RawWebSocket {
     stream: TlsStream<TcpStream>,
     pending: Vec<u8>,
     closed: bool,
+    relay_mode: bool,
 }
 
 pub struct WebSocketReader<R> {
     reader: R,
     pending: Vec<u8>,
+    relay_mode: bool,
 }
 
 pub struct WebSocketWriter<W> {
     writer: W,
     closed: bool,
+    relay_mode: bool,
 }
 
 pub enum WebSocketMessage {
     Binary(Vec<u8>),
+    RelayBinary { payload: Vec<u8>, sequence: u32 },
     Ping(Vec<u8>),
     Pong,
     Close,
@@ -75,86 +91,60 @@ impl RawWebSocket {
         if addresses.is_empty() {
             return Err(WebSocketError::UnsafeDnsAnswer);
         }
-
-        let mut tcp = None;
-        for address in addresses {
-            match timeout(connect_timeout, TcpStream::connect(address)).await {
-                Ok(Ok(stream)) => {
-                    tcp = Some(stream);
-                    break;
-                }
-                Ok(Err(_)) | Err(_) => continue,
-            }
-        }
-        let tcp = tcp.ok_or(WebSocketError::Timeout)?;
-        tcp.set_nodelay(true)
-            .map_err(|error| WebSocketError::Io(error.to_string()))?;
-
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-        let roots = RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let config = ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        let server_name = ServerName::try_from(domain.to_owned())
-            .map_err(|error| WebSocketError::Io(error.to_string()))?;
-        let mut stream = timeout(
+        connect_tls_websocket(
+            domain,
+            addresses,
             connect_timeout,
-            TlsConnector::from(Arc::new(config)).connect(server_name, tcp),
+            |request_key| {
+                Ok(Zeroizing::new(format!(
+                    "GET /apiws HTTP/1.1\r\n\
+                     Host: {domain}\r\n\
+                     Upgrade: websocket\r\n\
+                     Connection: Upgrade\r\n\
+                     Sec-WebSocket-Key: {request_key}\r\n\
+                     Sec-WebSocket-Version: 13\r\n\
+                     Sec-WebSocket-Protocol: binary\r\n\
+                     \r\n"
+                )))
+            },
+            None,
+            false,
         )
         .await
-        .map_err(|_| WebSocketError::Timeout)?
-        .map_err(|error| WebSocketError::Io(error.to_string()))?;
+    }
 
-        let mut nonce = [0u8; 16];
-        OsRng.fill_bytes(&mut nonce);
-        let request_key = STANDARD.encode(nonce);
-        let request = format!(
-            "GET /apiws HTTP/1.1\r\n\
-             Host: {domain}\r\n\
-             Upgrade: websocket\r\n\
-             Connection: Upgrade\r\n\
-             Sec-WebSocket-Key: {request_key}\r\n\
-             Sec-WebSocket-Version: 13\r\n\
-             Sec-WebSocket-Protocol: binary\r\n\
-             \r\n"
-        );
-        timeout(connect_timeout, stream.write_all(request.as_bytes()))
-            .await
-            .map_err(|_| WebSocketError::Timeout)?
-            .map_err(|error| WebSocketError::Io(error.to_string()))?;
-        timeout(connect_timeout, stream.flush())
-            .await
-            .map_err(|_| WebSocketError::Timeout)?
-            .map_err(|error| WebSocketError::Io(error.to_string()))?;
-
-        const MAX_HEADERS: usize = 16 * 1024;
-        let mut response = Vec::with_capacity(1024);
-        let header_end = loop {
-            if let Some(index) = response.windows(4).position(|window| window == b"\r\n\r\n") {
-                break index + 4;
-            }
-            if response.len() >= MAX_HEADERS {
-                return Err(WebSocketError::InvalidUpgrade);
-            }
-            let mut buffer = [0u8; 1024];
-            let read = timeout(connect_timeout, stream.read(&mut buffer))
-                .await
-                .map_err(|_| WebSocketError::Timeout)?
-                .map_err(|error| WebSocketError::Io(error.to_string()))?;
-            if read == 0 {
-                return Err(WebSocketError::InvalidUpgrade);
-            }
-            response.extend_from_slice(&buffer[..read]);
-        };
-        let headers = std::str::from_utf8(&response[..header_end])
-            .map_err(|_| WebSocketError::InvalidUpgrade)?;
-        validate_upgrade_response(headers, &request_key)?;
-
-        Ok(Self {
-            stream,
-            pending: response[header_end..].to_vec(),
-            closed: false,
-        })
+    pub async fn connect_relay(
+        credentials: &RelayCredentials,
+        target: &TelegramTarget,
+        connect_timeout: Duration,
+    ) -> Result<Self, WebSocketError> {
+        let endpoint = credentials.endpoint();
+        let addresses = timeout(
+            connect_timeout,
+            lookup_host((endpoint.host(), endpoint.port())),
+        )
+        .await
+        .map_err(|_| WebSocketError::RelayUnavailable)?
+        .map_err(|_| WebSocketError::RelayUnavailable)?
+        .filter(|address| is_public_upstream_ip(address.ip()))
+        .take(8)
+        .collect::<Vec<_>>();
+        if addresses.is_empty() {
+            return Err(WebSocketError::UnsafeDnsAnswer);
+        }
+        connect_tls_websocket(
+            endpoint.host(),
+            addresses,
+            connect_timeout,
+            |request_key| {
+                build_relay_upgrade_request(endpoint, target, credentials.token(), request_key)
+                    .map_err(|_| WebSocketError::Configuration)
+            },
+            Some(RELAY_PROTOCOL),
+            true,
+        )
+        .await
+        .map_err(|_| WebSocketError::RelayUnavailable)
     }
 
     pub fn split(
@@ -168,10 +158,12 @@ impl RawWebSocket {
             WebSocketReader {
                 reader,
                 pending: self.pending,
+                relay_mode: self.relay_mode,
             },
             WebSocketWriter {
                 writer,
                 closed: self.closed,
+                relay_mode: self.relay_mode,
             },
         )
     }
@@ -186,6 +178,87 @@ impl RawWebSocket {
     }
 }
 
+async fn connect_tls_websocket(
+    domain: &str,
+    addresses: Vec<SocketAddr>,
+    connect_timeout: Duration,
+    request_builder: impl FnOnce(&str) -> Result<Zeroizing<String>, WebSocketError>,
+    expected_protocol: Option<&str>,
+    relay_mode: bool,
+) -> Result<RawWebSocket, WebSocketError> {
+    let mut tcp = None;
+    for address in addresses {
+        match timeout(connect_timeout, TcpStream::connect(address)).await {
+            Ok(Ok(stream)) => {
+                tcp = Some(stream);
+                break;
+            }
+            Ok(Err(_)) | Err(_) => continue,
+        }
+    }
+    let tcp = tcp.ok_or(WebSocketError::Timeout)?;
+    tcp.set_nodelay(true)
+        .map_err(|error| WebSocketError::Io(error.to_string()))?;
+
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let roots = RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let config = ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    let server_name =
+        ServerName::try_from(domain.to_owned()).map_err(|_| WebSocketError::Configuration)?;
+    let mut stream = timeout(
+        connect_timeout,
+        TlsConnector::from(Arc::new(config)).connect(server_name, tcp),
+    )
+    .await
+    .map_err(|_| WebSocketError::Timeout)?
+    .map_err(|error| WebSocketError::Io(error.to_string()))?;
+
+    let mut nonce = [0u8; 16];
+    OsRng.fill_bytes(&mut nonce);
+    let request_key = STANDARD.encode(nonce);
+    let request = request_builder(&request_key)?;
+    timeout(connect_timeout, stream.write_all(request.as_bytes()))
+        .await
+        .map_err(|_| WebSocketError::Timeout)?
+        .map_err(|error| WebSocketError::Io(error.to_string()))?;
+    timeout(connect_timeout, stream.flush())
+        .await
+        .map_err(|_| WebSocketError::Timeout)?
+        .map_err(|error| WebSocketError::Io(error.to_string()))?;
+
+    const MAX_HEADERS: usize = 16 * 1024;
+    let mut response = Vec::with_capacity(1024);
+    let header_end = loop {
+        if let Some(index) = response.windows(4).position(|window| window == b"\r\n\r\n") {
+            break index + 4;
+        }
+        if response.len() >= MAX_HEADERS {
+            return Err(WebSocketError::InvalidUpgrade);
+        }
+        let mut buffer = [0u8; 1024];
+        let read = timeout(connect_timeout, stream.read(&mut buffer))
+            .await
+            .map_err(|_| WebSocketError::Timeout)?
+            .map_err(|error| WebSocketError::Io(error.to_string()))?;
+        if read == 0 {
+            return Err(WebSocketError::InvalidUpgrade);
+        }
+        response.extend_from_slice(&buffer[..read]);
+    };
+    let headers =
+        std::str::from_utf8(&response[..header_end]).map_err(|_| WebSocketError::InvalidUpgrade)?;
+    validate_upgrade_response_with_protocol(headers, &request_key, expected_protocol)?;
+
+    Ok(RawWebSocket {
+        stream,
+        pending: response[header_end..].to_vec(),
+        closed: false,
+        relay_mode,
+    })
+}
+
 impl<R> WebSocketReader<R>
 where
     R: AsyncRead + Unpin,
@@ -193,11 +266,18 @@ where
     pub async fn recv(&mut self) -> Result<WebSocketMessage, WebSocketError> {
         let mut header = [0u8; 2];
         self.read_exact(&mut header).await?;
+        if header[0] & 0x70 != 0 {
+            return Err(WebSocketError::Malformed);
+        }
         if header[0] & 0x80 == 0 {
             return Err(WebSocketError::Fragmented);
         }
         if header[1] & 0x80 != 0 {
             return Err(WebSocketError::MaskedServerFrame);
+        }
+        let opcode = header[0] & 0x0f;
+        if matches!(opcode, 0x8..=0x0f) && header[1] & 0x7f > 125 {
+            return Err(WebSocketError::Malformed);
         }
         let length = match header[1] & 0x7f {
             length @ 0..=125 => length as usize,
@@ -214,12 +294,16 @@ where
             }
             _ => unreachable!(),
         };
-        if length > MAX_FRAME_BYTES {
+        if length > maximum_incoming_frame_bytes(self.relay_mode) {
             return Err(WebSocketError::FrameTooLarge);
         }
         let mut payload = vec![0u8; length];
         self.read_exact(&mut payload).await?;
-        match header[0] & 0x0f {
+        match opcode {
+            0x2 if self.relay_mode => {
+                let (sequence, payload) = decode_relay_server_payload(&payload)?;
+                Ok(WebSocketMessage::RelayBinary { payload, sequence })
+            }
             0x2 => Ok(WebSocketMessage::Binary(payload)),
             0x8 => Ok(WebSocketMessage::Close),
             0x9 => Ok(WebSocketMessage::Ping(payload)),
@@ -238,7 +322,13 @@ where
             self.reader
                 .read_exact(&mut destination[copied..])
                 .await
-                .map_err(|error| WebSocketError::Io(error.to_string()))?;
+                .map_err(|error| {
+                    if self.relay_mode {
+                        WebSocketError::RelayUnavailable
+                    } else {
+                        WebSocketError::Io(error.to_string())
+                    }
+                })?;
         }
         Ok(())
     }
@@ -249,6 +339,17 @@ where
     W: AsyncWrite + Unpin,
 {
     pub async fn send_binary(&mut self, payload: &[u8]) -> Result<(), WebSocketError> {
+        if self.relay_mode {
+            let mut mask = [0u8; 4];
+            OsRng.fill_bytes(&mut mask);
+            let relay_payload = encode_relay_client_payload(payload)?;
+            let frame = build_client_binary_frame(&relay_payload, mask)?;
+            return timeout(Duration::from_secs(30), self.writer.write_all(&frame))
+                .await
+                .map_err(|_| WebSocketError::Timeout)?
+                .map_err(|_| WebSocketError::RelayUnavailable);
+        }
+
         let mut mask = [0u8; 4];
         OsRng.fill_bytes(&mut mask);
         let frame = build_client_binary_frame(payload, mask)?;
@@ -258,6 +359,20 @@ where
             .map_err(|error| WebSocketError::Io(error.to_string()))
     }
 
+    pub async fn send_relay_ack(&mut self, sequence: u32) -> Result<(), WebSocketError> {
+        if !self.relay_mode {
+            return Err(WebSocketError::Configuration);
+        }
+        let payload = encode_relay_ack_payload(sequence);
+        let mut mask = [0u8; 4];
+        OsRng.fill_bytes(&mut mask);
+        let frame = build_client_binary_frame(&payload, mask)?;
+        timeout(Duration::from_secs(30), self.writer.write_all(&frame))
+            .await
+            .map_err(|_| WebSocketError::Timeout)?
+            .map_err(|_| WebSocketError::RelayUnavailable)
+    }
+
     pub async fn send_pong(&mut self, payload: &[u8]) -> Result<(), WebSocketError> {
         timeout(
             Duration::from_secs(30),
@@ -265,6 +380,14 @@ where
         )
         .await
         .map_err(|_| WebSocketError::Timeout)?
+        .map_err(|error| {
+            if self.relay_mode {
+                WebSocketError::RelayUnavailable
+            } else {
+                error
+            }
+        })?;
+        Ok(())
     }
 
     pub async fn close(&mut self) {
@@ -279,6 +402,43 @@ where
         .await;
         let _ = timeout(Duration::from_secs(5), self.writer.shutdown()).await;
     }
+}
+
+fn encode_relay_client_payload(payload: &[u8]) -> Result<Vec<u8>, WebSocketError> {
+    if payload.is_empty() || payload.len() > MAX_RELAY_PAYLOAD_BYTES {
+        return Err(WebSocketError::FrameTooLarge);
+    }
+    let mut framed = Vec::with_capacity(payload.len() + 1);
+    framed.push(RELAY_DATA_FRAME);
+    framed.extend_from_slice(payload);
+    Ok(framed)
+}
+
+fn maximum_incoming_frame_bytes(relay_mode: bool) -> usize {
+    if relay_mode {
+        MAX_RELAY_PAYLOAD_BYTES + 5
+    } else {
+        MAX_FRAME_BYTES
+    }
+}
+
+fn encode_relay_ack_payload(sequence: u32) -> [u8; 5] {
+    let mut payload = [0u8; 5];
+    payload[0] = RELAY_ACK_FRAME;
+    payload[1..].copy_from_slice(&sequence.to_be_bytes());
+    payload
+}
+
+fn decode_relay_server_payload(payload: &[u8]) -> Result<(u32, Vec<u8>), WebSocketError> {
+    if payload.len() < 6 || payload[0] != RELAY_DATA_FRAME {
+        return Err(WebSocketError::Malformed);
+    }
+    let sequence = u32::from_be_bytes(
+        payload[1..5]
+            .try_into()
+            .map_err(|_| WebSocketError::Malformed)?,
+    );
+    Ok((sequence, payload[5..].to_vec()))
 }
 
 async fn send_control<W>(writer: &mut W, opcode: u8, payload: &[u8]) -> Result<(), WebSocketError>
@@ -338,11 +498,17 @@ pub fn parse_server_frame(frame: &[u8]) -> Result<(u8, Vec<u8>), WebSocketError>
     if frame.len() < 2 {
         return Err(WebSocketError::Malformed);
     }
+    if frame[0] & 0x70 != 0 {
+        return Err(WebSocketError::Malformed);
+    }
     if frame[0] & 0x80 == 0 {
         return Err(WebSocketError::Fragmented);
     }
     if frame[1] & 0x80 != 0 {
         return Err(WebSocketError::MaskedServerFrame);
+    }
+    if matches!(frame[0] & 0x0f, 0x8..=0x0f) && frame[1] & 0x7f > 125 {
+        return Err(WebSocketError::Malformed);
     }
     let mut cursor = 2;
     let length = match frame[1] & 0x7f {
@@ -378,7 +544,16 @@ pub fn parse_server_frame(frame: &[u8]) -> Result<(u8, Vec<u8>), WebSocketError>
     Ok((frame[0] & 0x0f, frame[cursor..].to_vec()))
 }
 
+#[cfg(test)]
 pub fn validate_upgrade_response(response: &str, request_key: &str) -> Result<(), WebSocketError> {
+    validate_upgrade_response_with_protocol(response, request_key, None)
+}
+
+fn validate_upgrade_response_with_protocol(
+    response: &str,
+    request_key: &str,
+    expected_protocol: Option<&str>,
+) -> Result<(), WebSocketError> {
     let mut lines = response.split("\r\n");
     let status = lines.next().ok_or(WebSocketError::InvalidUpgrade)?;
     if !status.starts_with("HTTP/1.1 101 ") && !status.starts_with("HTTP/1.0 101 ") {
@@ -387,6 +562,7 @@ pub fn validate_upgrade_response(response: &str, request_key: &str) -> Result<()
     let mut upgrade = false;
     let mut connection = false;
     let mut accept = None;
+    let mut protocol = None;
     for line in lines {
         let Some((name, value)) = line.split_once(':') else {
             continue;
@@ -403,6 +579,8 @@ pub fn validate_upgrade_response(response: &str, request_key: &str) -> Result<()
             connection = true;
         } else if name.eq_ignore_ascii_case("sec-websocket-accept") {
             accept = Some(value);
+        } else if name.eq_ignore_ascii_case("sec-websocket-protocol") {
+            protocol = Some(value);
         }
     }
     let expected = STANDARD.encode(
@@ -411,13 +589,16 @@ pub fn validate_upgrade_response(response: &str, request_key: &str) -> Result<()
             .chain_update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
             .finalize(),
     );
-    if !upgrade || !connection || accept != Some(expected.as_str()) {
+    if !upgrade
+        || !connection
+        || accept != Some(expected.as_str())
+        || expected_protocol.is_some_and(|expected| protocol != Some(expected))
+    {
         return Err(WebSocketError::InvalidUpgrade);
     }
     Ok(())
 }
 
-#[cfg(test)]
 pub fn is_public_upstream_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => is_public_ipv4(ip),
@@ -462,7 +643,6 @@ pub fn is_official_telegram_ip(ip: IpAddr) -> bool {
     }
 }
 
-#[cfg(test)]
 fn is_public_ipv4(ip: Ipv4Addr) -> bool {
     let octets = ip.octets();
     !ip.is_unspecified()
@@ -480,7 +660,6 @@ fn is_public_ipv4(ip: Ipv4Addr) -> bool {
         && octets[0] < 240
 }
 
-#[cfg(test)]
 fn is_documentation_ipv6(ip: Ipv6Addr) -> bool {
     let segments = ip.segments();
     segments[0] == 0x2001 && segments[1] == 0x0db8
@@ -537,6 +716,14 @@ mod tests {
             parse_server_frame(&frame),
             Err(WebSocketError::FrameTooLarge)
         );
+        assert_eq!(
+            parse_server_frame(&[0xc2, 0]),
+            Err(WebSocketError::Malformed)
+        );
+        assert_eq!(
+            parse_server_frame(&[0x89, 126, 0, 126]),
+            Err(WebSocketError::Malformed)
+        );
     }
 
     #[test]
@@ -545,6 +732,48 @@ mod tests {
             parse_server_frame(&[0x82, 3, 1, 2, 3]).unwrap(),
             (2, vec![1, 2, 3])
         );
+    }
+
+    #[test]
+    fn relay_frames_are_typed_and_acknowledged_by_sequence() {
+        assert_eq!(
+            encode_relay_client_payload(b"request").unwrap(),
+            [vec![RELAY_DATA_FRAME], b"request".to_vec()].concat()
+        );
+        assert_eq!(
+            encode_relay_ack_payload(0x0102_0304),
+            [RELAY_ACK_FRAME, 1, 2, 3, 4]
+        );
+        let (sequence, payload) =
+            decode_relay_server_payload(&[RELAY_DATA_FRAME, 1, 2, 3, 4, 9]).unwrap();
+        assert_eq!(sequence, 0x0102_0304);
+        assert_eq!(payload, vec![9]);
+        assert_eq!(
+            decode_relay_server_payload(&[RELAY_DATA_FRAME, 1, 2, 3, 4]),
+            Err(WebSocketError::Malformed)
+        );
+        assert_eq!(MAX_RELAY_PAYLOAD_BYTES, 64 * 1024);
+        assert!(encode_relay_client_payload(&vec![0; MAX_RELAY_PAYLOAD_BYTES]).is_ok());
+        assert_eq!(
+            encode_relay_client_payload(&vec![0; MAX_RELAY_PAYLOAD_BYTES + 1]),
+            Err(WebSocketError::FrameTooLarge)
+        );
+        assert_eq!(
+            maximum_incoming_frame_bytes(true),
+            MAX_RELAY_PAYLOAD_BYTES + 5
+        );
+        assert_eq!(maximum_incoming_frame_bytes(false), MAX_FRAME_BYTES);
+    }
+
+    #[test]
+    fn relay_errors_do_not_disclose_the_user_endpoint() {
+        assert_eq!(
+            WebSocketError::RelayUnavailable.to_string(),
+            "user relay connection failed"
+        );
+        assert!(!WebSocketError::RelayUnavailable
+            .to_string()
+            .contains("workers.dev"));
     }
 
     #[test]

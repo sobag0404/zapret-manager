@@ -1,0 +1,15 @@
+{
+  "name": "@zapret-manager/telegram-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "deploy:dry": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260730.1",
+    "typescript": "5.9.3",
+    "wrangler": "4.115.0"
+  }
+}
