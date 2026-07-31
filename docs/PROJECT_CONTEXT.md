@@ -26,11 +26,12 @@ The current test artifact is always a separately named installer under
 
 ## Latest Test Build
 
-- Release metadata commit: `1a8421d` (`release: prepare v1.3.0`).
-- Installer: `target/release/bundle/nsis/ZapretManager Discord-YouTube v1.3.0.exe`
-- SHA-256: `C1AEFD036E75A378C1E6820D2EFE560239CC6BA128E11320F261FA19C46B8A47`
-- The existing v1.2 test installer remains untouched. Protected v1.0
-  installers and tag were not modified.
+- Combined-mode commit: `c7e5a27` (`engine: support combined mode`).
+- Release metadata commit: `adf9c40` (`release: prepare v1.3.1`).
+- Installer: `target/release/bundle/nsis/ZapretManager Discord-YouTube v1.3.1.exe`
+- SHA-256: `93750FBFE7895F2317898939EFEE11FA152D14146B9B1D8CFB18AD3BA16CF2E0`
+- CI and Build Windows are green for `adf9c40`. The previous installers,
+  protected v1.0 installers, and tag were not modified.
 
 ## Confirmed Test-PC Evidence
 
@@ -78,8 +79,13 @@ The current test artifact is always a separately named installer under
 
 - Only `discord.json` and `youtube.json` are bundled profiles.
 - Only Discord/YouTube strategy entries remain in `strategies/manifest.json`.
-- The dashboard selects one mode at a time. Combined Discord+YouTube use is
-  fail-closed until separately demonstrated on the test PC.
+- The dashboard accepts Discord, YouTube, or both. The selection is persisted
+  locally and unknown profile IDs fail closed.
+- Combined mode runs one managed `winws.exe`. Its structured argv keeps the
+  verified Discord `2 ALT` groups and YouTube `Fake TLS Auto` groups separated
+  by explicit `--new` boundaries; tests enforce source, order, capture-filter
+  compatibility, and profile isolation. No engine files or manifest hashes
+  changed.
 - Discord selects `2 ALT`; YouTube selects `Fake TLS Auto`. Both remain
   experimental, with test-network wording rather than a global stable claim.
 - Other engine command files remain as audited source material only. They are
@@ -124,10 +130,15 @@ the main PC.
 
 ## Next Release Gate
 
-1. Verify tray Exit interactively with the engine active; the CDP smoke covered
+1. Install v1.3.1 on the test PC and verify combined Discord Web/WSS plus
+   YouTube playback, seek, reload, and warm start. This gate is pending because
+   `zapret-test-pc` was offline on Tailscale/SSH during the release run.
+2. Recheck both single modes and verify Disable, emergency disable, tray Exit,
+   and post-exit `winws=0`, running WinDivert=`0`, listeners=`0`, and runtime
+   directories=`0`.
+3. Verify tray Exit interactively with the engine active; the CDP smoke covered
    enable/disable and scoped cleanup, but native tray interaction was not
    automated.
-2. Verify an authenticated Discord Desktop session, including media and voice,
+4. Verify an authenticated Discord Desktop session, including media and voice,
    only with explicit user consent; do not store account data in diagnostics.
-3. Repeat the installed-build smoke after any engine or lifecycle change.
-4. Keep GitHub Actions CI and Build Windows green before promoting a release.
+5. Repeat the installed-build smoke after any engine or lifecycle change.
