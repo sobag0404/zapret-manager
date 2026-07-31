@@ -26,9 +26,11 @@ The current test artifact is always a separately named installer under
 
 ## Latest Test Build
 
-- Release commit is being prepared from the confirmed `4368da4` product line.
-- The v1.3.0 installer is a separate artifact; the previous v1.2 test installer
-  remains untouched until v1.3.0 checks complete.
+- Release metadata commit: `1a8421d` (`release: prepare v1.3.0`).
+- Installer: `target/release/bundle/nsis/ZapretManager Discord-YouTube v1.3.0.exe`
+- SHA-256: `C1AEFD036E75A378C1E6820D2EFE560239CC6BA128E11320F261FA19C46B8A47`
+- The existing v1.2 test installer remains untouched. Protected v1.0
+  installers and tag were not modified.
 
 ## Confirmed Test-PC Evidence
 
@@ -56,6 +58,15 @@ The current test artifact is always a separately named installer under
   YouTube-only reached `readyState=4`, played, sought within the 19-second test
   video, and reloaded into a playable video. Emergency disable again ended with
   `winws=0`, running WinDivert=0, and `engine-runtime` directories=0.
+- On 2026-07-31, the v1.3.0 installer was copied to the test PC with the
+  matching SHA-256 and installed successfully. The installed product version
+  is `1.3.0`; retired Telegram/WhatsApp/Common/legacy resources were absent.
+  Discord-only returned HTTP 200 with managed `winws` and WinDivert active.
+  YouTube-only loaded `Me at the zoo - YouTube`, reached `readyState=4`,
+  played to about 18 seconds, sought successfully, and after reload reached
+  `readyState=4` with playback advancing again. Final scoped cleanup verified
+  `app=0`, `winws=0`, running WinDivert=`0`, Edge smoke=`0`, and runtime
+  directories=`0`.
 - On the same installed build, closing the main window kept the application
   process alive for the tray. CDP is intentionally torn down with the hidden
   WebView, so tray Exit still needs a separate manual interactive smoke while
@@ -113,7 +124,9 @@ the main PC.
 
 ## Next Release Gate
 
-1. Verify tray Exit and emergency disable interactively with the engine active.
+1. Verify tray Exit interactively with the engine active; the CDP smoke covered
+   enable/disable and scoped cleanup, but native tray interaction was not
+   automated.
 2. Verify an authenticated Discord Desktop session, including media and voice,
    only with explicit user consent; do not store account data in diagnostics.
 3. Repeat the installed-build smoke after any engine or lifecycle change.
