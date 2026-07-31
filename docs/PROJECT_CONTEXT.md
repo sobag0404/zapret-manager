@@ -72,6 +72,8 @@ The current test artifact is always a separately named installer under
 - The installer packages an explicit allowlist: the two selected command files,
   their required binaries and shared Discord/YouTube lists. Telegram, WhatsApp,
   Common, and legacy strategy files remain outside the installer resources.
+- The NSIS upgrade hook removes only the retired app-owned resource paths from
+  prior installations; it never touches user data under LocalAppData.
 
 ## Safety Invariants
 

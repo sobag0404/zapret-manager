@@ -28,4 +28,12 @@ describe("tauri resources", () => {
 
     expect(bundledEngineFiles).toEqual(manifestFiles);
   });
+
+  it("removes retired product files on upgrade without touching user data", () => {
+    const hooks = readFileSync(join(root, "app/tauri/nsis-hooks.nsh"), "utf8");
+    expect(hooks).toContain("!macro NSIS_HOOK_PREINSTALL");
+    expect(hooks).toContain('Delete "$INSTDIR\\engine\\local\\web (TELEGRAM).bat"');
+    expect(hooks).toContain('Delete "$INSTDIR\\profiles\\whatsapp.json"');
+    expect(hooks).not.toMatch(/RMDir \/r|Delete \"\$(?:APPDATA|LOCALAPPDATA)/i);
+  });
 });
