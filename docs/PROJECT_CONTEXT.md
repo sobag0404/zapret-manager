@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## Current Goal
 
@@ -26,12 +26,12 @@ The current test artifact is always a separately named installer under
 
 ## Latest Test Build
 
-- Product commit `d78704e` was packaged as
+- Product commits `3703f7c` and `4368da4` were packaged as
   `ZapretManager Discord-YouTube v1.2-test.exe`.
 - Installer SHA-256:
-  `6C28CEAD5B7FC4D8477BD1A81DC15B55A7D2862537A00D4D53E56883732D14DB`.
+  `E8BBF3BA22973D7F5B456413E04119AAB7A6ABF93AA21141F392EC50BB347743`.
 - The installer was hash-verified before installation on the Windows 10 test
-  PC. Follow-up harness/context commit `1217829` passed CI and Build Windows.
+  PC. CI and Build Windows must pass for `4368da4` before promotion.
 
 ## Confirmed Test-PC Evidence
 
@@ -52,6 +52,13 @@ The current test artifact is always a separately named installer under
   isolated Edge profile loaded a watch page, reached `readyState=4`, advanced
   during playback, completed a seek to 60 seconds, and stayed playable after a
   reload. Both modes were disabled cleanly afterward.
+- On 2026-07-31, the `4368da4` installer upgraded the test-PC installation
+  after a matching SHA-256 check. The NSIS hook removed the stale
+  Telegram/WhatsApp/Common/legacy resources from the prior install; no flagged
+  resource files remained. Discord-only returned HTTP 200 and disabled cleanly.
+  YouTube-only reached `readyState=4`, played, sought within the 19-second test
+  video, and reloaded into a playable video. Emergency disable again ended with
+  `winws=0`, running WinDivert=0, and `engine-runtime` directories=0.
 - On the same installed build, closing the main window kept the application
   process alive for the tray. CDP is intentionally torn down with the hidden
   WebView, so tray Exit still needs a separate manual interactive smoke while
