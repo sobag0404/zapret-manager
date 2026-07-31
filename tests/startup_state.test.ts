@@ -42,7 +42,7 @@ const diagnostics: DiagnosticReport = {
 };
 
 const strategyUpdateStatus: StrategyUpdateStatus = {
-  app_version: "1.3.0",
+  app_version: "1.3.1",
   strategy_version: "1.0.0",
   last_checked: "2026-07-13T00:00:00Z",
   channel: "stable",

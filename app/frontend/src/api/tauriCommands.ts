@@ -76,7 +76,7 @@ declare global {
   }
 }
 
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.3.1";
 const now = () => new Date().toISOString();
 let pendingAppUpdate: Update | null = null;
 

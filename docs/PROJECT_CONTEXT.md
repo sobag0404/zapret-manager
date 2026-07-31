@@ -4,7 +4,7 @@ Last updated: 2026-07-31
 
 ## Current Goal
 
-Zapret Manager v1.3 is a local Windows manager for two experimental modes only:
+Zapret Manager v1.3.1 is a local Windows manager for two experimental modes:
 Discord and YouTube. It is not a VPN, has no account, telemetry, external
 server, or system-wide proxy/DNS/firewall configuration.
 

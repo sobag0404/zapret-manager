@@ -34,7 +34,7 @@ export function UpdateStatus({
           <h2>Приложение</h2>
           <p>{appInfo?.message ?? "Обновления приложения ещё не проверялись."}</p>
           <dl>
-            <div><dt>Текущая версия</dt><dd>{appInfo?.current_version ?? "1.3.0"}</dd></div>
+            <div><dt>Текущая версия</dt><dd>{appInfo?.current_version ?? "1.3.1"}</dd></div>
             <div><dt>Доступная версия</dt><dd>{appInfo?.available_version ?? "нет"}</dd></div>
             <div><dt>Канал</dt><dd>stable</dd></div>
             <div><dt>Установка</dt><dd>только вручную</dd></div>
@@ -53,7 +53,7 @@ export function UpdateStatus({
           <h2>Стратегии</h2>
           <p>{strategyInfo?.message ?? "Статус обновлений стратегий ещё не проверен."}</p>
           <dl>
-            <div><dt>Приложение</dt><dd>{strategyInfo?.app_version ?? "1.3.0"}</dd></div>
+            <div><dt>Приложение</dt><dd>{strategyInfo?.app_version ?? "1.3.1"}</dd></div>
             <div><dt>Стратегии</dt><dd>{strategyInfo?.strategy_version ?? "1.0.0"}</dd></div>
             <div><dt>Канал</dt><dd>{strategyInfo?.channel ?? "stable"}</dd></div>
             <div><dt>Проверка</dt><dd>{strategyInfo?.last_checked ? new Date(strategyInfo.last_checked).toLocaleString() : "не было"}</dd></div>

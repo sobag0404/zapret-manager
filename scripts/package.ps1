@@ -23,8 +23,8 @@ try {
   Pop-Location
 }
 
-$version = "1.3.0"
-$bundle = "target/release/bundle/nsis/Zapret Manager_1.3.0_x64-setup.exe"
+$version = "1.3.1"
+$bundle = "target/release/bundle/nsis/Zapret Manager_1.3.1_x64-setup.exe"
 $named = "target/release/bundle/nsis/ZapretManager Discord-YouTube v$version.exe"
 if (Test-Path -LiteralPath $bundle) {
   Copy-Item -LiteralPath $bundle -Destination $named -Force
