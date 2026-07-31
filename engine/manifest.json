@@ -24,11 +24,6 @@
       "executable": false
     },
     {
-      "relative_path": "bin/tls_clienthello_4pda_to.bin",
-      "sha256": "eefeaf09dde8d69b1f176212541f63c68b314a33a335eced99a8a29f17254da8",
-      "executable": false
-    },
-    {
       "relative_path": "bin/tls_clienthello_max_ru.bin",
       "sha256": "4ee0870abe0a0128600b0095189987ba1d210dae8bf963bc725aff49cf922624",
       "executable": false
@@ -54,118 +49,8 @@
       "executable": true
     },
     {
-      "relative_path": "web (TELEGRAM PHASE0).bat",
-      "sha256": "5046b1c73ec0943edc4b8bb45d7f02dee7285ddfc2f7994b1b6a9f76762c22d8",
-      "executable": true
-    },
-    {
-      "relative_path": "web (TELEGRAM RUNTIME SYNDATA).bat",
-      "sha256": "a75ee8d11dae6fcc6bc46194663aa1ebf2afdf6ea8d02cb28cee955e463c6379",
-      "executable": true
-    },
-    {
-      "relative_path": "web (TELEGRAM RUNTIME WSSIZE).bat",
-      "sha256": "4ce272dc87d899182db490a87dde0e13e2a0957da0031eefa44c89eeed64d4aa",
-      "executable": true
-    },
-    {
-      "relative_path": "web (TELEGRAM RUNTIME DUP).bat",
-      "sha256": "7e2e0d5cf70746450a3301c9e3945c1ec9a210a18632596d772f6054db245dc3",
-      "executable": true
-    },
-    {
-      "relative_path": "web (TELEGRAM).bat",
-      "sha256": "b7ab957c3f3e15f0d2de3f6f6c72d266c2fc53394f59deb4d855837c9469af41",
-      "executable": true
-    },
-    {
-      "relative_path": "web (WHATSAPP).bat",
-      "sha256": "e0abfb12aa1f7928e19361fafce4114e0c6c53236baa84823aa12fb539762051",
-      "executable": true
-    },
-    {
-      "relative_path": "web (WHATSAPP RUNTIME SYNDATA).bat",
-      "sha256": "f96673ae62518e86a8ddd98dd3aa2b84f517f76f607a95e97e4c4be984d5abb7",
-      "executable": true
-    },
-    {
-      "relative_path": "web (WHATSAPP RUNTIME WSSIZE).bat",
-      "sha256": "0f2e804e1b4fe6f03328da8fde982c6c114079f0cf4af0049f2c51f6d340a13d",
-      "executable": true
-    },
-    {
       "relative_path": "general (ALT).bat",
       "sha256": "c6dff44ea3c7159788077e31a8e35929eab1c0270fb86f5490d44b1fd049a6fc",
-      "executable": true
-    },
-    {
-      "relative_path": "general (ALT10).bat",
-      "sha256": "7a8b4d861c4448ee3fb4aef61d79bcdbfc3ea0ab043145f643539fbd177c8864",
-      "executable": true
-    },
-    {
-      "relative_path": "general (ALT11).bat",
-      "sha256": "8df459fc47b6becbfd4cc54263ab99ee275a62c8a8097fb4abea236e29e7cc85",
-      "executable": true
-    },
-    {
-      "relative_path": "general (ALT12).bat",
-      "sha256": "3f28b3788373c4963ba7b4e38112ae965fef2c99a812f023e9d2c736e99cb9c7",
-      "executable": true
-    },
-    {
-      "relative_path": "general (ALT2).bat",
-      "sha256": "94a8ef4dc67c5e04100c404604883cee6a7d8ad5d324395ecd71dc8ccb805d80",
-      "executable": true
-    },
-    {
-      "relative_path": "general (ALT3).bat",
-      "sha256": "99c06ea66bdade72d43febbf4e5bd6208351ebd471fa99a39a92253e21526c05",
-      "executable": true
-    },
-    {
-      "relative_path": "general (ALT4).bat",
-      "sha256": "feee3e7ecdbf3a5a46109b6018144954d793143ad4c889f3273f8ec1e8ac067d",
-      "executable": true
-    },
-    {
-      "relative_path": "general (ALT5).bat",
-      "sha256": "3e0a7026cccc02e6ca968dcd3efe4db94181cea190cecf4ac3e7e60d39d4dbb1",
-      "executable": true
-    },
-    {
-      "relative_path": "general (ALT6).bat",
-      "sha256": "8ef1e5f6ae38a7a288ba1516293eda9183d7f265210897399f911d8a1e7e62fe",
-      "executable": true
-    },
-    {
-      "relative_path": "general (ALT7).bat",
-      "sha256": "26b4dd29e5020066660230cf5ea61693dd85b69d15fc11ac967f3adf54fb352f",
-      "executable": true
-    },
-    {
-      "relative_path": "general (ALT8).bat",
-      "sha256": "8612e0b0d5eb757448c4d2ef255abc00ff30f2b7e9087e0c936f7ba479af07e5",
-      "executable": true
-    },
-    {
-      "relative_path": "general (ALT9).bat",
-      "sha256": "4b8f50bd2b5cd71c0a883461d4a526a2cd9494a87847907807d06c233166c2c9",
-      "executable": true
-    },
-    {
-      "relative_path": "general (FAKE TLS AUTO ALT).bat",
-      "sha256": "0a3744d9a42dd439b3576fa1d031d3d2ef6f93564bdb575a6afb0c8a3a056ac2",
-      "executable": true
-    },
-    {
-      "relative_path": "general (FAKE TLS AUTO ALT2).bat",
-      "sha256": "1e9a3d1fe257f10c9355dbef5a45cca9765b57e2ce1f549225c68c86ff1c8d8b",
-      "executable": true
-    },
-    {
-      "relative_path": "general (FAKE TLS AUTO ALT3).bat",
-      "sha256": "7679e6f52ce95ed5c554de668286a40f2ac9b845cc69a3619a313f10e43cef46",
       "executable": true
     },
     {
@@ -174,33 +59,8 @@
       "executable": true
     },
     {
-      "relative_path": "general (SIMPLE FAKE ALT).bat",
-      "sha256": "b9f847180ef1da5908870221acf03a469fc0dca87dadf7404350893d24ca02f2",
-      "executable": true
-    },
-    {
-      "relative_path": "general (SIMPLE FAKE ALT2).bat",
-      "sha256": "7ad976ec3968a3dce1e0b54b81e77ec1f925a78eb31930deeaa8359b23201f1a",
-      "executable": true
-    },
-    {
-      "relative_path": "general (SIMPLE FAKE).bat",
-      "sha256": "3d8bfbf6758e41c12d3e4975c451e20a92a0cf3a429e3c283d686b92172b2732",
-      "executable": true
-    },
-    {
-      "relative_path": "general.bat",
-      "sha256": "c4f7f5708de5323b55ea85e2ef140c43426352875593eae1c0b94bfc769a4477",
-      "executable": true
-    },
-    {
-      "relative_path": "lists/ipset-telegram-phase0.txt",
-      "sha256": "3ecd072cedf72eceee6961b18a51e37f905d5ce4a656a5d24cf5fea63e6ec651",
-      "executable": false
-    },
-    {
       "relative_path": "lists/ipset-all.txt",
-      "sha256": "63d921b1ef3a4da9b906abba741090fea951961a7455a7efd40cd81a8ce78f2d",
+      "sha256": "0b9e21ccfb068531d1dcbf3e529fc178ed003058ae5233fd3756b78777a9716c",
       "executable": false
     },
     {
@@ -225,7 +85,7 @@
     },
     {
       "relative_path": "lists/list-general-user.txt",
-      "sha256": "2640951657949f1b3648c8908fc2441085d904c73b521de79071525006f27f1e",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "executable": false
     },
     {
@@ -237,31 +97,6 @@
       "relative_path": "lists/list-google.txt",
       "sha256": "1e59f9d487f7bce12091c838151713d0a8d31c3aae20afefebb38206f2cd8232",
       "executable": false
-    },
-    {
-      "relative_path": "lists/list-telegram.txt",
-      "sha256": "6a881fc16c04c27498081fdf2f9e7a0491553be8c9b201bdbcda9ce043a8a84d",
-      "executable": false
-    },
-    {
-      "relative_path": "lists/list-telegram-web.txt",
-      "sha256": "718a18e84b1dea8f2ac4ad8176d65c3e2111a738217a1e916dcdff06101b72a6",
-      "executable": false
-    },
-    {
-      "relative_path": "lists/list-whatsapp.txt",
-      "sha256": "ab4d2b17488b00b7ba9ed0e608e4ad89b5d897b2d8583edc5b36ee270ad306ef",
-      "executable": false
-    },
-    {
-      "relative_path": "lists/list-whatsapp-web.txt",
-      "sha256": "27bf3a15ce46641b372bbcc510ecd64d2321e51abfbe6de5d60d84efbecda5f8",
-      "executable": false
-    },
-    {
-      "relative_path": "service.bat",
-      "sha256": "d976e8e559a9a300a95198885d3e77d6375e8ebe76709a74c590e995a55737a2",
-      "executable": true
     }
   ]
 }

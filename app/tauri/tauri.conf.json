@@ -31,7 +31,26 @@
     "resources": {
       "../../profiles": "profiles",
       "../../strategies": "strategies",
-      "../../engine": "engine"
+      "../../engine/manifest.json": "engine/manifest.json",
+      "../../engine/local/general (ALT).bat": "engine/local/general (ALT).bat",
+      "../../engine/local/general (FAKE TLS AUTO).bat": "engine/local/general (FAKE TLS AUTO).bat",
+      "../../engine/local/bin/cygwin1.dll": "engine/local/bin/cygwin1.dll",
+      "../../engine/local/bin/quic_initial_dbankcloud_ru.bin": "engine/local/bin/quic_initial_dbankcloud_ru.bin",
+      "../../engine/local/bin/quic_initial_www_google_com.bin": "engine/local/bin/quic_initial_www_google_com.bin",
+      "../../engine/local/bin/stun.bin": "engine/local/bin/stun.bin",
+      "../../engine/local/bin/tls_clienthello_max_ru.bin": "engine/local/bin/tls_clienthello_max_ru.bin",
+      "../../engine/local/bin/tls_clienthello_www_google_com.bin": "engine/local/bin/tls_clienthello_www_google_com.bin",
+      "../../engine/local/bin/WinDivert.dll": "engine/local/bin/WinDivert.dll",
+      "../../engine/local/bin/WinDivert64.sys": "engine/local/bin/WinDivert64.sys",
+      "../../engine/local/bin/winws.exe": "engine/local/bin/winws.exe",
+      "../../engine/local/lists/ipset-all.txt": "engine/local/lists/ipset-all.txt",
+      "../../engine/local/lists/ipset-exclude-user.txt": "engine/local/lists/ipset-exclude-user.txt",
+      "../../engine/local/lists/ipset-exclude.txt": "engine/local/lists/ipset-exclude.txt",
+      "../../engine/local/lists/list-exclude-user.txt": "engine/local/lists/list-exclude-user.txt",
+      "../../engine/local/lists/list-exclude.txt": "engine/local/lists/list-exclude.txt",
+      "../../engine/local/lists/list-general-user.txt": "engine/local/lists/list-general-user.txt",
+      "../../engine/local/lists/list-general.txt": "engine/local/lists/list-general.txt",
+      "../../engine/local/lists/list-google.txt": "engine/local/lists/list-google.txt"
     },
     "windows": {
       "nsis": {

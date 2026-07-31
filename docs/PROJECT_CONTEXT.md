@@ -69,6 +69,9 @@ The current test artifact is always a separately named installer under
   experimental, with test-network wording rather than a global stable claim.
 - Other engine command files remain as audited source material only. They are
   not user-selectable and must not be restored to the product without evidence.
+- The installer packages an explicit allowlist: the two selected command files,
+  their required binaries and shared Discord/YouTube lists. Telegram, WhatsApp,
+  Common, and legacy strategy files remain outside the installer resources.
 
 ## Safety Invariants
 

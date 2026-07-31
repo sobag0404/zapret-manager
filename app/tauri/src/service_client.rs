@@ -1193,34 +1193,9 @@ impl ServiceClient {
 
 fn strategy_bat_file(strategy: &str) -> &'static str {
     match strategy {
-        "telegram_web_phase0" => "web (TELEGRAM PHASE0).bat",
-        "telegram_web_runtime_syndata" => "web (TELEGRAM RUNTIME SYNDATA).bat",
-        "telegram_web_runtime_wssize" => "web (TELEGRAM RUNTIME WSSIZE).bat",
-        "telegram_web_runtime_dup" => "web (TELEGRAM RUNTIME DUP).bat",
-        "whatsapp_web_runtime_syndata" => "web (WHATSAPP RUNTIME SYNDATA).bat",
-        "whatsapp_web_runtime_wssize" => "web (WHATSAPP RUNTIME WSSIZE).bat",
-        "telegram_web" => "web (TELEGRAM).bat",
-        "whatsapp_web" => "web (WHATSAPP).bat",
         "alt" => "general (ALT).bat",
-        "alt2" => "general (ALT2).bat",
-        "alt3" => "general (ALT3).bat",
-        "alt4" => "general (ALT4).bat",
-        "alt5" => "general (ALT5).bat",
-        "alt6" => "general (ALT6).bat",
-        "alt7" => "general (ALT7).bat",
-        "alt8" => "general (ALT8).bat",
-        "alt9" => "general (ALT9).bat",
-        "alt10" => "general (ALT10).bat",
-        "alt11" => "general (ALT11).bat",
-        "alt12" => "general (ALT12).bat",
-        "simple_fake" => "general (SIMPLE FAKE).bat",
-        "simple_fake_alt" => "general (SIMPLE FAKE ALT).bat",
-        "simple_fake_alt2" => "general (SIMPLE FAKE ALT2).bat",
         "fake_tls_auto" => "general (FAKE TLS AUTO).bat",
-        "fake_tls_auto_alt" => "general (FAKE TLS AUTO ALT).bat",
-        "fake_tls_auto_alt2" => "general (FAKE TLS AUTO ALT2).bat",
-        "fake_tls_auto_alt3" => "general (FAKE TLS AUTO ALT3).bat",
-        _ => "general.bat",
+        _ => "general (ALT).bat",
     }
 }
 

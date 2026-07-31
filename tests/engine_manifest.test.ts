@@ -12,6 +12,7 @@ describe("engine manifest", () => {
     const manifest = JSON.parse(readFileSync(join(root, "engine/manifest.json"), "utf8"));
     expect(manifest.schema_version).toBe("1");
     expect(manifest.files.length).toBeGreaterThan(0);
+    expect(manifest.files.map((file: { relative_path: string }) => file.relative_path).join("\n")).not.toMatch(/telegram|whatsapp|alt[2-9]|simple fake/i);
 
     const seen = new Set<string>();
     for (const file of manifest.files) {
@@ -28,6 +29,24 @@ describe("engine manifest", () => {
 
       const hash = createHash("sha256").update(readFileSync(path)).digest("hex");
       expect(hash, file.relative_path).toBe(file.sha256);
+    }
+  });
+
+  it("does not ship Telegram or WhatsApp targets in approved shared lists", () => {
+    const approvedLists = [
+      "ipset-all.txt",
+      "ipset-exclude-user.txt",
+      "ipset-exclude.txt",
+      "list-exclude-user.txt",
+      "list-exclude.txt",
+      "list-general-user.txt",
+      "list-general.txt",
+      "list-google.txt",
+    ];
+
+    for (const list of approvedLists) {
+      const body = readFileSync(join(engineRoot, "lists", list), "utf8");
+      expect(body).not.toMatch(/telegram|whatsapp|t\.me|91\.108\.|149\.154\./i);
     }
   });
 });
