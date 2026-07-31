@@ -60,6 +60,7 @@ export interface AppSettings {
   autostart: boolean;
   strategy_channel: string;
   engine_strategy: string;
+  selected_profiles: string[];
   logs_path: string;
   engine_path: string;
   safety_mode: boolean;
@@ -95,6 +96,7 @@ let mockSettings: AppSettings = {
   autostart: false,
   strategy_channel: "stable",
   engine_strategy: "general",
+  selected_profiles: [],
   logs_path: "logs",
   engine_path: "engine/local",
   safety_mode: true,
@@ -195,6 +197,8 @@ export const tauriCommands = {
     call<string[]>("set_profile_enabled", { id, enabled }, () => {
       if (enabled && !mockStatus.enabled_profiles.includes(id)) mockStatus.enabled_profiles.push(id);
       if (!enabled) mockStatus.enabled_profiles = mockStatus.enabled_profiles.filter((profileId) => profileId !== id);
+      mockStatus.enabled_profiles = mockStatus.enabled_profiles.filter((profileId) => profileId === "discord" || profileId === "youtube").sort();
+      mockSettings.selected_profiles = clone(mockStatus.enabled_profiles);
       return clone(mockStatus.enabled_profiles);
     }),
   toggleEnabled: (profileIds: string[]) =>

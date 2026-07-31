@@ -46,7 +46,7 @@ export function Settings() {
           </select>
         </label>
         <div className="settings-note wide-field">
-          Стратегия выбирается автоматически: Discord использует 2 ALT, YouTube использует Fake TLS Auto. Ручной выбор и непроверенные варианты скрыты из этой сборки.
+          Стратегия выбирается автоматически: Discord использует 2 ALT, YouTube использует Fake TLS Auto, совместный режим объединяет их в одном engine. Ручной выбор и непроверенные варианты скрыты из этой сборки.
         </div>
       </section>
     </form>

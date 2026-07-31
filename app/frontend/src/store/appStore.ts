@@ -68,6 +68,7 @@ export interface StartupStateResult {
 
 export const YOUTUBE_RECOMMENDED_STRATEGY = "fake_tls_auto";
 export const DISCORD_RECOMMENDED_STRATEGY = "alt";
+export const COMBINED_RECOMMENDED_STRATEGY = "combined";
 
 export interface EngineStrategyRecommendationInput {
   selectedProfiles: string[];
@@ -77,26 +78,19 @@ export interface EngineStrategyRecommendationInput {
 }
 
 export function recommendedEngineStrategy(input: EngineStrategyRecommendationInput): string | null {
-  const youtubeOnly = input.selectedProfiles.length === 1 && input.selectedProfiles[0] === "youtube";
-  const discordOnly = input.selectedProfiles.length === 1 && input.selectedProfiles[0] === "discord";
-  if (
-    discordOnly &&
-    input.runtimeStatus === "disabled" &&
-    !input.strategySelectedManually &&
-    input.currentStrategy === "general"
-  ) {
-    return DISCORD_RECOMMENDED_STRATEGY;
-  }
-  if (
-    !youtubeOnly ||
-    input.runtimeStatus !== "disabled" ||
-    input.strategySelectedManually ||
-    input.currentStrategy !== "general"
-  ) {
+  if (input.runtimeStatus !== "disabled" || input.strategySelectedManually) return null;
+  const selected = [...new Set(input.selectedProfiles)].sort();
+  const desired = selected.length === 1 && selected[0] === "discord"
+    ? DISCORD_RECOMMENDED_STRATEGY
+    : selected.length === 1 && selected[0] === "youtube"
+      ? YOUTUBE_RECOMMENDED_STRATEGY
+      : selected.length === 2 && selected[0] === "discord" && selected[1] === "youtube"
+        ? COMBINED_RECOMMENDED_STRATEGY
+        : null;
+  if (desired !== COMBINED_RECOMMENDED_STRATEGY && input.currentStrategy !== "general" && input.currentStrategy !== COMBINED_RECOMMENDED_STRATEGY) {
     return null;
   }
-
-  return YOUTUBE_RECOMMENDED_STRATEGY;
+  return desired && desired !== input.currentStrategy ? desired : null;
 }
 
 async function runAction<T>(key: string, action: () => Promise<T>): Promise<T | null> {
@@ -112,11 +106,10 @@ async function runAction<T>(key: string, action: () => Promise<T>): Promise<T | 
   }
 }
 
-function nextSelectedProfiles(id: string, enabled: boolean): string[] {
-  if (!enabled) return state.selectedProfiles.filter((profileId) => profileId !== id);
-  // The two verified modes use different audited command files. Keep one active at a time
-  // until a combined remote smoke has demonstrated that both services stay available.
-  return [id];
+export function nextSelectedProfiles(current: string[], id: string, enabled: boolean): string[] {
+  if (id !== "discord" && id !== "youtube") return current;
+  const next = enabled ? [...current, id] : current.filter((profileId) => profileId !== id);
+  return [...new Set(next)].filter((profileId) => profileId === "discord" || profileId === "youtube").sort();
 }
 
 function defaultSettings(): AppSettings {
@@ -124,6 +117,7 @@ function defaultSettings(): AppSettings {
     autostart: false,
     strategy_channel: "stable",
     engine_strategy: "general",
+    selected_profiles: [],
     logs_path: "logs",
     engine_path: "engine/local",
     safety_mode: true,
@@ -166,7 +160,7 @@ export async function loadStartupState(commands: StartupCommands = tauriCommands
     critical: {
       status,
       profiles,
-      selectedProfiles: status.enabled_profiles,
+      selectedProfiles: status.enabled_profiles.length ? status.enabled_profiles : settings.selected_profiles,
       settings,
     },
     optional,
@@ -182,14 +176,22 @@ export const appActions = {
       setState({
         ...startup.critical,
         ...startup.optional,
-        strategySelectedManually: (startup.critical.settings?.engine_strategy ?? "general") !== "general",
+        strategySelectedManually: false,
         error: startup.optionalErrors.length ? `Часть данных не загрузилась: ${startup.optionalErrors.join("; ")}` : null,
       });
     });
   },
   setProfileSelected: async (id: string, enabled: boolean) => {
-    const selectedProfiles = nextSelectedProfiles(id, enabled);
+    const selectedProfiles = nextSelectedProfiles(state.selectedProfiles, id, enabled);
     setState({ selectedProfiles, error: null });
+
+    const persisted = await runAction("profile-selection", () => tauriCommands.setProfileEnabled(id, enabled));
+    if (persisted) {
+      setState({
+        selectedProfiles: persisted,
+        settings: { ...(state.settings ?? defaultSettings()), selected_profiles: persisted },
+      });
+    }
 
     const recommended = recommendedEngineStrategy({
       selectedProfiles,
@@ -201,7 +203,7 @@ export const appActions = {
   },
   toggleEnabled: async () => {
     if (state.status?.status !== "running" && state.status?.status !== "error" && state.selectedProfiles.length === 0) {
-      setState({ error: "Выберите один режим: Discord или YouTube." });
+      setState({ error: "Выберите Discord, YouTube или оба режима." });
       return;
     }
     const status = await runAction("toggle", () => tauriCommands.toggleEnabled(state.selectedProfiles));

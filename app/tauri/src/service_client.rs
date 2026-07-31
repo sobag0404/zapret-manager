@@ -104,6 +104,10 @@ impl ServiceClient {
         if is_deprecated_strategy(&settings.engine_strategy) {
             settings.engine_strategy = "alt".to_string();
         }
+        settings.selected_profiles = normalized_profiles(&settings.selected_profiles)
+            .into_iter()
+            .filter(|profile| is_supported_profile(profile))
+            .collect();
         Self {
             content_root,
             data_root,
@@ -171,31 +175,31 @@ impl ServiceClient {
                 "В этой сборке доступны только режимы Discord и YouTube.".to_string(),
             ));
         }
-        if enabled && !self.enabled_profiles.contains(&id) {
-            self.enabled_profiles = vec![id.clone()];
+        if self.enabled || self.cleanup_failed {
+            return Err(ZapretError::Operation(
+                "Сначала выключите активный режим, затем измените выбор.".to_string(),
+            ));
+        }
+        if enabled && !self.settings.selected_profiles.contains(&id) {
+            self.settings.selected_profiles.push(id.clone());
+            self.settings.selected_profiles = normalized_profiles(&self.settings.selected_profiles);
             self.log_user(&format!("Выбран режим: {id}."))?;
             self.log_debug("info", "profile_selected", &id)?;
         } else if !enabled {
-            self.enabled_profiles.retain(|profile| profile != &id);
+            self.settings
+                .selected_profiles
+                .retain(|profile| profile != &id);
             self.log_user(&format!("Режим снят: {id}."))?;
             self.log_debug("info", "profile_unselected", &id)?;
         }
-        Ok(self.enabled_profiles.clone())
+        self.write_settings()?;
+        Ok(self.settings.selected_profiles.clone())
     }
 
     pub fn enable(&mut self, profiles: Vec<String>) -> Result<AppStatus> {
-        if profiles.len() != 1
-            || profiles
-                .iter()
-                .any(|profile| !is_supported_profile(profile))
-        {
-            return Err(ZapretError::Operation(
-                "Выберите один режим: Discord или YouTube. Их совместная работа пока не подтверждена отдельным тестом."
-                    .to_string(),
-            ));
-        }
-
-        self.settings.engine_strategy = recommended_strategy_for_profile(&profiles[0]).to_string();
+        let profiles = validate_selected_profiles(&profiles)?;
+        self.settings.engine_strategy = recommended_strategy_for_profiles(&profiles)?.to_string();
+        self.settings.selected_profiles = profiles.clone();
         self.write_settings()?;
 
         if self.enabled {
@@ -857,7 +861,18 @@ impl ServiceClient {
         self.settings.clone()
     }
 
-    pub fn save_settings(&mut self, settings: AppSettings) -> Result<AppSettings> {
+    pub fn save_settings(&mut self, mut settings: AppSettings) -> Result<AppSettings> {
+        settings.selected_profiles = normalized_profiles(&settings.selected_profiles);
+        if settings
+            .selected_profiles
+            .iter()
+            .any(|profile| !is_supported_profile(profile))
+        {
+            return Err(ZapretError::Operation(
+                "Настройки содержат неизвестный профиль.".to_string(),
+            ));
+        }
+        settings.engine_strategy = normalized_engine_strategy(&settings.engine_strategy);
         self.settings = settings;
         self.write_settings()?;
         self.log_user("Настройки сохранены.")?;
@@ -1195,6 +1210,7 @@ fn strategy_bat_file(strategy: &str) -> &'static str {
     match strategy {
         "alt" => "general (ALT).bat",
         "fake_tls_auto" => "general (FAKE TLS AUTO).bat",
+        "combined" => "general (ALT).bat",
         _ => "general (ALT).bat",
     }
 }
@@ -1405,6 +1421,129 @@ fn is_public_runtime_ip(ip: IpAddr) -> bool {
     }
 }
 
+fn parse_winws_strategy(
+    bat: &Path,
+    bin_dir: &Path,
+    lists_dir: &Path,
+) -> Result<(PathBuf, Vec<String>)> {
+    let source =
+        fs::read_to_string(bat).map_err(|source| zapret_manager_core::io_error(bat, source))?;
+    let command_line = extract_winws_command(&source).ok_or_else(|| {
+        ZapretError::Operation(format!("winws.exe command not found in {}", bat.display()))
+    })?;
+    let expanded = expand_strategy_vars(&command_line, bin_dir, lists_dir);
+    let mut parts = split_windows_args(&expanded);
+    if parts.is_empty() {
+        return Err(ZapretError::Operation(format!(
+            "Flowseal strategy has empty winws command: {}",
+            bat.display()
+        )));
+    }
+    Ok((PathBuf::from(parts.remove(0)), parts))
+}
+
+fn split_strategy_groups(args: &[String]) -> Result<(Vec<String>, Vec<Vec<String>>)> {
+    let first_filter = args
+        .iter()
+        .position(|arg| arg.starts_with("--filter-"))
+        .ok_or_else(|| ZapretError::Operation("Strategy has no filter groups.".to_string()))?;
+    let preamble = args[..first_filter].to_vec();
+    let groups = args[first_filter..]
+        .split(|arg| arg == "--new")
+        .map(|group| group.to_vec())
+        .collect::<Vec<_>>();
+    if preamble.is_empty() || groups.is_empty() || groups.iter().any(Vec::is_empty) {
+        return Err(ZapretError::Operation(
+            "Strategy has invalid preamble or --new boundaries.".to_string(),
+        ));
+    }
+    Ok((preamble, groups))
+}
+
+fn select_unique_group<F>(groups: &[Vec<String>], label: &str, predicate: F) -> Result<Vec<String>>
+where
+    F: Fn(&[String]) -> bool,
+{
+    let matches = groups
+        .iter()
+        .filter(|group| predicate(group))
+        .collect::<Vec<_>>();
+    if matches.len() != 1 {
+        return Err(ZapretError::Operation(format!(
+            "Combined strategy expected exactly one {label} group, found {}.",
+            matches.len()
+        )));
+    }
+    Ok(matches[0].clone())
+}
+
+fn group_has(group: &[String], expected: &str) -> bool {
+    group.iter().any(|arg| arg.eq_ignore_ascii_case(expected))
+}
+
+fn group_references(group: &[String], file_name: &str) -> bool {
+    let file_name = file_name.to_ascii_lowercase();
+    group
+        .iter()
+        .any(|arg| arg.to_ascii_lowercase().contains(&file_name))
+}
+
+fn compose_combined_strategy_args(
+    discord_args: &[String],
+    youtube_args: &[String],
+) -> Result<Vec<String>> {
+    let (discord_preamble, discord_groups) = split_strategy_groups(discord_args)?;
+    let (youtube_preamble, youtube_groups) = split_strategy_groups(youtube_args)?;
+    if discord_preamble != youtube_preamble {
+        return Err(ZapretError::Operation(
+            "Discord and YouTube strategy capture filters are incompatible.".to_string(),
+        ));
+    }
+
+    let groups = vec![
+        select_unique_group(&discord_groups, "Discord QUIC hostlist", |group| {
+            group_has(group, "--filter-udp=443")
+                && group_references(group, "list-general.txt")
+                && !group_references(group, "ipset-all.txt")
+        })?,
+        select_unique_group(&discord_groups, "Discord voice", |group| {
+            group_has(group, "--filter-l7=discord,stun")
+        })?,
+        select_unique_group(&discord_groups, "Discord media", |group| {
+            group_has(group, "--hostlist-domains=discord.media")
+        })?,
+        select_unique_group(&youtube_groups, "YouTube hostlist", |group| {
+            group_references(group, "list-google.txt")
+        })?,
+        select_unique_group(&discord_groups, "Discord TCP hostlist", |group| {
+            group_has(group, "--filter-tcp=80,443") && group_references(group, "list-general.txt")
+        })?,
+        select_unique_group(&youtube_groups, "YouTube UDP ipset", |group| {
+            group_has(group, "--filter-udp=443")
+                && group_references(group, "ipset-all.txt")
+                && !group_references(group, "list-general.txt")
+        })?,
+        select_unique_group(&youtube_groups, "YouTube TCP ipset", |group| {
+            group_has(group, "--filter-tcp=80,443,8443") && group_references(group, "ipset-all.txt")
+        })?,
+        select_unique_group(&discord_groups, "Discord game TCP fallback", |group| {
+            group_has(group, "--filter-tcp=65535")
+        })?,
+        select_unique_group(&discord_groups, "Discord game UDP fallback", |group| {
+            group_has(group, "--filter-udp=65535")
+        })?,
+    ];
+
+    let mut combined = discord_preamble;
+    for (index, group) in groups.into_iter().enumerate() {
+        if index > 0 {
+            combined.push("--new".to_string());
+        }
+        combined.extend(group);
+    }
+    Ok(combined)
+}
+
 fn build_winws_launch(
     bat: &Path,
     runtime_dir: &Path,
@@ -1415,23 +1554,26 @@ fn build_winws_launch(
 ) -> Result<WinwsLaunch> {
     validate_strategy_profile_scope(strategy, selected_profiles)?;
     let log = runtime_dir.join("engine-launch.log");
-    let strategy_source =
-        fs::read_to_string(bat).map_err(|source| zapret_manager_core::io_error(bat, source))?;
-    let command_line = extract_winws_command(&strategy_source).ok_or_else(|| {
-        ZapretError::Operation(format!("winws.exe command not found in {}", bat.display()))
-    })?;
     let bin_dir = engine_root.join("bin");
     let lists_dir = runtime_dir.join("lists");
-    let expanded = expand_strategy_vars(&command_line, &bin_dir, &lists_dir);
-    let mut parts = split_windows_args(&expanded);
-    if parts.is_empty() {
-        return Err(ZapretError::Operation(format!(
-            "Flowseal strategy has empty winws command: {}",
-            bat.display()
-        )));
-    }
+    let (exe_path, parts) = if strategy == "combined" {
+        let discord_bat = engine_root.join("general (ALT).bat");
+        let youtube_bat = engine_root.join("general (FAKE TLS AUTO).bat");
+        let (discord_exe, discord_args) = parse_winws_strategy(&discord_bat, &bin_dir, &lists_dir)?;
+        let (youtube_exe, youtube_args) = parse_winws_strategy(&youtube_bat, &bin_dir, &lists_dir)?;
+        if discord_exe != youtube_exe {
+            return Err(ZapretError::Operation(
+                "Combined strategy sources resolve different winws executables.".to_string(),
+            ));
+        }
+        (
+            discord_exe,
+            compose_combined_strategy_args(&discord_args, &youtube_args)?,
+        )
+    } else {
+        parse_winws_strategy(bat, &bin_dir, &lists_dir)?
+    };
 
-    let exe_path = PathBuf::from(parts.remove(0));
     if exe_path.file_name().and_then(|name| name.to_str()) != Some("winws.exe") {
         return Err(ZapretError::Operation(format!(
             "Flowseal strategy resolved unsupported executable: {}",
@@ -1890,6 +2032,7 @@ fn validate_strategy_profile_scope(strategy: &str, selected_profiles: &[String])
 
 fn strategy_scope(strategy: &str) -> &'static str {
     match strategy {
+        "combined" => "discord_youtube_combined",
         "telegram_web_phase0" => "telegram_web_phase0_only",
         "telegram_web_runtime_syndata" => "telegram_web_runtime_syndata_only",
         "telegram_web_runtime_wssize" => "telegram_web_runtime_wssize_only",
@@ -1904,6 +2047,7 @@ fn strategy_scope(strategy: &str) -> &'static str {
 
 fn strategy_filter_mode(strategy_scope: &str) -> &'static str {
     match strategy_scope {
+        "discord_youtube_combined" => "composed_profile_filters",
         "telegram_web_runtime_syndata_only" => "runtime_dns_ipset_syndata_strategy",
         "telegram_web_runtime_wssize_only" => "runtime_dns_ipset_wssize_strategy",
         "telegram_web_runtime_dup_only" => "runtime_dns_ipset_duplicate_syn_strategy",
@@ -2419,7 +2563,7 @@ struct EngineReadiness {
 
 fn normalized_engine_strategy(strategy: &str) -> String {
     match strategy {
-        "alt" | "fake_tls_auto" => strategy.to_string(),
+        "alt" | "fake_tls_auto" | "combined" => strategy.to_string(),
         _ => "general".to_string(),
     }
 }
@@ -2433,6 +2577,32 @@ fn recommended_strategy_for_profile(profile: &str) -> &'static str {
         "discord" => "alt",
         "youtube" => "fake_tls_auto",
         _ => "general",
+    }
+}
+
+fn validate_selected_profiles(profiles: &[String]) -> Result<Vec<String>> {
+    let normalized = normalized_profiles(profiles);
+    if normalized.is_empty()
+        || normalized.len() > 2
+        || normalized
+            .iter()
+            .any(|profile| !is_supported_profile(profile))
+    {
+        return Err(ZapretError::Operation(
+            "Выберите Discord, YouTube или оба режима. Неизвестные профили запрещены.".to_string(),
+        ));
+    }
+    Ok(normalized)
+}
+
+fn recommended_strategy_for_profiles(profiles: &[String]) -> Result<&'static str> {
+    let profiles = validate_selected_profiles(profiles)?;
+    match profiles.as_slice() {
+        [profile] => Ok(recommended_strategy_for_profile(profile)),
+        [discord, youtube] if discord == "discord" && youtube == "youtube" => Ok("combined"),
+        _ => Err(ZapretError::Operation(
+            "Неподдерживаемая комбинация режимов.".to_string(),
+        )),
     }
 }
 
@@ -3803,9 +3973,9 @@ mod tests {
         decode_netsh_output, decode_windows_code_page, disable_state_after_cleanup,
         expand_strategy_vars, extract_winws_command, is_deprecated_strategy, is_supported_profile,
         normalize_runtime_dns_answers, parse_tcp_timestamps_enabled, powershell_single_quote,
-        profile_launch_report, recommended_strategy_for_profile, requires_tcp_timestamps,
-        runtime_root_command_prefix, runtime_status_from_cleanup_state, split_windows_args,
-        tcp_timestamp_lease_markers, validate_strategy_profile_scope,
+        profile_launch_report, recommended_strategy_for_profile, recommended_strategy_for_profiles,
+        requires_tcp_timestamps, runtime_root_command_prefix, runtime_status_from_cleanup_state,
+        split_windows_args, tcp_timestamp_lease_markers, validate_strategy_profile_scope,
         windivert_driver_path_is_app_owned, windivert_report_has_running_driver,
         windivert_service_name_is_safe, write_runtime_profile_ipset, ServiceClient,
     };
@@ -4554,6 +4724,128 @@ start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=%GameFilterTCP%
         assert!(!is_supported_profile("common"));
         assert_eq!(recommended_strategy_for_profile("discord"), "alt");
         assert_eq!(recommended_strategy_for_profile("youtube"), "fake_tls_auto");
+        assert_eq!(
+            recommended_strategy_for_profiles(&["discord".to_string(), "youtube".to_string()])
+                .expect("combined profile set"),
+            "combined"
+        );
+        assert!(recommended_strategy_for_profiles(&["telegram".to_string()]).is_err());
+    }
+
+    #[test]
+    fn profile_selection_persists_both_supported_modes() {
+        let content_root = test_runtime_dir("combined selection content");
+        let data_root = test_runtime_dir("combined selection data");
+        fs::create_dir_all(&content_root).expect("content");
+        fs::create_dir_all(&data_root).expect("data");
+        let mut client = ServiceClient::new(content_root, data_root.clone());
+
+        assert_eq!(
+            client
+                .set_profile_enabled("youtube".to_string(), true)
+                .expect("select YouTube"),
+            vec!["youtube".to_string()]
+        );
+        assert_eq!(
+            client
+                .set_profile_enabled("discord".to_string(), true)
+                .expect("select Discord"),
+            vec!["discord".to_string(), "youtube".to_string()]
+        );
+
+        let saved: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(data_root.join("settings.json")).expect("settings"),
+        )
+        .expect("settings JSON");
+        assert_eq!(
+            saved["selected_profiles"],
+            serde_json::json!(["discord", "youtube"])
+        );
+
+        let _ = fs::remove_dir_all(data_root);
+    }
+
+    #[test]
+    fn combined_launch_composes_verified_profile_groups_in_one_argv() {
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("engine")
+            .join("local");
+        let root = test_runtime_dir("John Smith combined launch");
+        copy_dir_recursive(&source, &root).expect("runtime copy");
+        let launch = build_winws_launch(
+            &root.join("general (ALT).bat"),
+            &root,
+            &root,
+            "combined",
+            &["youtube".to_string(), "discord".to_string()],
+            None,
+        )
+        .expect("combined launch");
+
+        let groups = launch
+            .args
+            .split(|arg| arg == "--new")
+            .map(|group| group.to_vec())
+            .collect::<Vec<_>>();
+        let discord_media = groups
+            .iter()
+            .position(|group| {
+                group
+                    .iter()
+                    .any(|arg| arg == "--hostlist-domains=discord.media")
+            })
+            .expect("Discord media group");
+        let youtube = groups
+            .iter()
+            .position(|group| group.iter().any(|arg| arg.contains("list-google.txt")))
+            .expect("YouTube group");
+        let discord_general = groups
+            .iter()
+            .position(|group| {
+                group.iter().any(|arg| arg == "--filter-tcp=80,443")
+                    && group.iter().any(|arg| arg.contains("list-general.txt"))
+            })
+            .expect("Discord general group");
+
+        assert_eq!(launch.exe_path, root.join("bin").join("winws.exe"));
+        assert_eq!(
+            launch
+                .args
+                .iter()
+                .filter(|arg| arg.as_str() == "--wf-tcp=80,443,2053,2083,2087,2096,8443,65535")
+                .count(),
+            1
+        );
+        assert!(discord_media < youtube && youtube < discord_general);
+        assert!(groups[discord_media]
+            .iter()
+            .any(|arg| arg == "--dpi-desync-fooling=ts"));
+        assert!(groups[youtube]
+            .iter()
+            .any(|arg| arg == "--dpi-desync=fake,multidisorder"));
+        assert!(groups[youtube]
+            .iter()
+            .any(|arg| arg == "--dpi-desync-fooling=badseq"));
+        assert!(!groups[youtube]
+            .iter()
+            .any(|arg| arg.contains("list-general.txt")));
+        assert!(groups[discord_general]
+            .iter()
+            .any(|arg| arg == "--dpi-desync-fooling=ts"));
+        assert!(!groups[discord_general]
+            .iter()
+            .any(|arg| arg.contains("list-google.txt")));
+        assert!(requires_tcp_timestamps(&launch.args));
+
+        let log = fs::read_to_string(root.join("engine-launch.log")).expect("log");
+        assert!(log.contains("normalized_strategy=combined"));
+        assert!(log.contains("strategy_scope=discord_youtube_combined"));
+        assert!(log.contains("selected_profiles=discord,youtube"));
+        assert!(log.contains("preflight_ok=true"));
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

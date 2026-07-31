@@ -12,6 +12,10 @@ const recommendedStrategies: Record<string, { name: string; detail: string }> = 
     name: "Fake TLS Auto",
     detail: "Экспериментально: проверено для YouTube Web и воспроизведения видео на тестовой сети.",
   },
+  "discord+youtube": {
+    name: "Discord + YouTube",
+    detail: "Один управляемый engine с раздельными Discord и YouTube фильтрами.",
+  },
 };
 
 export function Dashboard() {
@@ -19,8 +23,9 @@ export function Dashboard() {
   const errors = diagnostics.filter((item) => item.status === "error").length;
   const warnings = diagnostics.filter((item) => item.status === "warning").length;
   const engineIssue = diagnostics.find((item) => item.id === "engine_found" && item.status !== "ok");
-  const selectedProfile = selectedProfiles.length === 1 ? selectedProfiles[0] : null;
-  const recommendation = selectedProfile ? recommendedStrategies[selectedProfile] : null;
+  const selectedKey = [...selectedProfiles].sort().join("+");
+  const recommendation = recommendedStrategies[selectedKey] ?? null;
+  const selectionLocked = Boolean(loading["profile-selection"]) || status?.status === "running" || status?.status === "starting" || status?.status === "stopping" || status?.status === "error";
 
   return (
     <div className="page-stack">
@@ -36,8 +41,8 @@ export function Dashboard() {
       <section className="dashboard-section">
         <div className="section-heading">
           <span className="eyebrow">Режимы</span>
-          <h2>Выберите режим</h2>
-          <p>Режимы запускаются по отдельности, пока совместная работа не подтверждена отдельным тестом.</p>
+          <h2>Выберите один или оба режима</h2>
+          <p>Discord и YouTube могут работать отдельно или одновременно через один управляемый engine.</p>
         </div>
         {profiles.length === 0 ? (
           <p className="empty-state">Режимы не найдены. Переустановите приложение или проверьте папку profiles рядом с .exe.</p>
@@ -47,7 +52,7 @@ export function Dashboard() {
               const selected = selectedProfiles.includes(profile.id);
               return (
                 <label className={`mode-option ${selected ? "is-selected" : ""}`} key={profile.id}>
-                  <input checked={selected} onChange={(event) => appActions.setProfileSelected(profile.id, event.target.checked)} type="checkbox" />
+                  <input checked={selected} disabled={selectionLocked} onChange={(event) => appActions.setProfileSelected(profile.id, event.target.checked)} type="checkbox" />
                   <span>
                     <strong>{profile.name}</strong>
                     <small>{profile.status} / {profile.version} / риск {profile.risk_level}</small>
@@ -62,8 +67,8 @@ export function Dashboard() {
       <section className="dashboard-section">
         <div className="section-heading">
           <span className="eyebrow">Рекомендованная стратегия</span>
-          <h2>{recommendation ? recommendation.name : "Выберите Discord или YouTube"}</h2>
-          <p>{recommendation ? recommendation.detail : "Стратегия выбирается автоматически только для одного режима."}</p>
+          <h2>{recommendation ? recommendation.name : "Выберите Discord, YouTube или оба"}</h2>
+          <p>{recommendation ? recommendation.detail : "Стратегия выбирается автоматически по выбранным режимам."}</p>
         </div>
         <p className="hint-line">Ручной выбор и непроверенные варианты скрыты в этой тестовой сборке.</p>
       </section>
@@ -76,7 +81,7 @@ export function Dashboard() {
           detail={errors > 0 ? `${errors} ошибок` : warnings > 0 ? `${warnings} предупреждений` : "Блокеров нет"}
           tone={errors > 0 ? "error" : warnings > 0 ? "warning" : "ok"}
         />
-        <StatusCard icon={Layers3} label="Режим" value={selectedProfile ? "1" : "0"} detail={selectedProfile ?? "Не выбран"} />
+        <StatusCard icon={Layers3} label="Режимы" value={String(selectedProfiles.length)} detail={selectedProfiles.length ? selectedProfiles.join(" + ") : "Не выбраны"} />
         <StatusCard
           icon={Activity}
           label="Engine"

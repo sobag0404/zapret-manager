@@ -29,6 +29,7 @@ const settings: AppSettings = {
   autostart: false,
   strategy_channel: "stable",
   engine_strategy: "alt",
+  selected_profiles: ["discord"],
   logs_path: "logs",
   engine_path: "engine/local",
   safety_mode: true,
