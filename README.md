@@ -59,7 +59,7 @@ The installer artifact is produced by Tauri/NSIS under
 `target/release/bundle/nsis/`. The packaging script refuses a dirty worktree
 and embeds the checked-out Git commit in the build identity.
 
-The current v1.2 product scope contains two experimental modes only: Discord
+The current v1.3 product scope contains two experimental modes only: Discord
 and YouTube. When the user presses `Включить`, the app selects the verified
 test-network candidate for the selected single mode and starts `winws.exe`
 through Windows UAC (`runas`). Closing the window hides the app to tray;

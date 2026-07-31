@@ -4,7 +4,7 @@ Last updated: 2026-07-31
 
 ## Current Goal
 
-Zapret Manager v1.2 is a local Windows manager for two experimental modes only:
+Zapret Manager v1.3 is a local Windows manager for two experimental modes only:
 Discord and YouTube. It is not a VPN, has no account, telemetry, external
 server, or system-wide proxy/DNS/firewall configuration.
 
@@ -26,12 +26,9 @@ The current test artifact is always a separately named installer under
 
 ## Latest Test Build
 
-- Product commits `3703f7c` and `4368da4` were packaged as
-  `ZapretManager Discord-YouTube v1.2-test.exe`.
-- Installer SHA-256:
-  `E8BBF3BA22973D7F5B456413E04119AAB7A6ABF93AA21141F392EC50BB347743`.
-- The installer was hash-verified before installation on the Windows 10 test
-  PC. CI and Build Windows must pass for `4368da4` before promotion.
+- Release commit is being prepared from the confirmed `4368da4` product line.
+- The v1.3.0 installer is a separate artifact; the previous v1.2 test installer
+  remains untouched until v1.3.0 checks complete.
 
 ## Confirmed Test-PC Evidence
 
