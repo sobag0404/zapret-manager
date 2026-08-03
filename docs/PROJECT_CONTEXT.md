@@ -29,7 +29,7 @@ The current test artifact is always a separately named installer under
 - Combined-mode commit: `c7e5a27` (`engine: support combined mode`).
 - Release metadata commit: `adf9c40` (`release: prepare v1.3.1`).
 - Installer: `target/release/bundle/nsis/ZapretManager Discord-YouTube v1.3.1.exe`
-- SHA-256: `93750FBFE7895F2317898939EFEE11FA152D14146B9B1D8CFB18AD3BA16CF2E0`
+- SHA-256: `94FCB7F2E9A60449BFA2D0042E5031AB76784F07BCEA3EF5693153C6A4AD780F`
 - CI and Build Windows are green for `adf9c40`. The previous installers,
   protected v1.0 installers, and tag were not modified.
 
@@ -92,6 +92,10 @@ The current test artifact is always a separately named installer under
   ended with `winws=0`, running WinDivert=`0`, listeners=`0`, and runtime
   directories=`0`; the Windows proxy and IPv4 DNS baseline were unchanged.
   Closing the main window kept the app process alive in the tray as designed.
+- The final v1.3.1 installer was rebuilt from clean commit `90185e15fd49` and
+  installed after a matching SHA-256 check. Its launch log recorded the clean
+  `build_id=90185e15fd49`; the combined smoke again recorded one `winws.exe`,
+  `normalized_strategy=combined`, and `selected_profiles=discord,youtube`.
 
 ## Product Scope Decision
 
