@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-31
+Last updated: 2026-08-03
 
 ## Current Goal
 
@@ -74,6 +74,24 @@ The current test artifact is always a separately named installer under
   the engine is active.
 - Closing the main window intentionally keeps the application in the tray.
   Tray Exit must call the same disable/cleanup path before process exit.
+- On 2026-08-03, the v1.3.1 installer was transferred to the test PC after an
+  exact SHA-256 match and installed as product version `1.3.1`. The combined
+  Discord + YouTube selection started exactly one managed `winws.exe` and one
+  scoped WinDivert service. The launch log recorded
+  `normalized_strategy=combined`, `strategy_scope=discord_youtube_combined`,
+  and `selected_profiles=discord,youtube`.
+- In the v1.3.1 combined smoke, Discord Web returned HTTP 200 and the public
+  Gateway WebSocket completed its unauthenticated HELLO exchange. An isolated
+  Edge profile played YouTube for more than 60 seconds, sought successfully,
+  and reloaded into another playable video. A warm combined restart also
+  reached the running state.
+- The v1.3.1 Discord-only regression smoke returned HTTP 200 with one managed
+  `winws.exe`; the YouTube-only smoke reached `readyState=4` and playback.
+  Authenticated Discord Desktop, chat, media, and voice remain unclaimed.
+- Normal Disable and emergency Disable on the installed v1.3.1 build both
+  ended with `winws=0`, running WinDivert=`0`, listeners=`0`, and runtime
+  directories=`0`; the Windows proxy and IPv4 DNS baseline were unchanged.
+  Closing the main window kept the app process alive in the tray as designed.
 
 ## Product Scope Decision
 
@@ -130,15 +148,10 @@ the main PC.
 
 ## Next Release Gate
 
-1. Install v1.3.1 on the test PC and verify combined Discord Web/WSS plus
-   YouTube playback, seek, reload, and warm start. This gate is pending because
-   `zapret-test-pc` was offline on Tailscale/SSH during the release run.
-2. Recheck both single modes and verify Disable, emergency disable, tray Exit,
-   and post-exit `winws=0`, running WinDivert=`0`, listeners=`0`, and runtime
-   directories=`0`.
-3. Verify tray Exit interactively with the engine active; the CDP smoke covered
-   enable/disable and scoped cleanup, but native tray interaction was not
-   automated.
-4. Verify an authenticated Discord Desktop session, including media and voice,
+1. Verify native tray Exit interactively with the engine active. The SSH/CDP
+   smoke verified close-to-tray and the same cleanup implementation through
+   Disable/emergency Disable, but Windows did not expose the notification icon
+   to noninteractive UI Automation.
+2. Verify an authenticated Discord Desktop session, including media and voice,
    only with explicit user consent; do not store account data in diagnostics.
-5. Repeat the installed-build smoke after any engine or lifecycle change.
+3. Repeat the installed-build smoke after any engine or lifecycle change.
